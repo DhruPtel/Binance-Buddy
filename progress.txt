@@ -1,10 +1,8 @@
 # Binance Buddy — Progress
 
 ## Current State
-- Day 1 (Mar 10): Environment setup complete, monorepo scaffolded
-- OpenClaw installed, binancebuddy agent created
-- Canonical docs added to project root
-- NEXT: Install dependencies, create core types, first tsc pass
+- Day 1 COMPLETE (Mar 10)
+- Day 2 NEXT: Wallet scanner + profile builder (step 2.1 — provider setup)
 
 ## Completed
 - [x] WSL2 + Node 23 + pnpm + Redis
@@ -13,17 +11,21 @@
 - [x] All canonical docs: PRD, APP_FLOW, TECH_STACK, FRONTEND_GUIDELINES, BACKEND_STRUCTURE, IMPLEMENTATION_PLAN
 - [x] OPENCLAW.md agent operating manual
 - [x] progress.txt + lessons.md
+- [x] packages/core/src/types.ts — all shared types
+- [x] packages/core/src/constants.ts — BSC addresses, guardrails, BigInt serializer
+- [x] packages/core/src/index.ts — barrel re-export
+- [x] All deps installed: ethers@6, grammy@1, express@4, react@18, three@0.128, vite, tailwind, vitest, tsx, etc.
+- [x] npx tsc --noEmit passes clean on all 8 packages
 
-## In Progress
-- [x] Core types (packages/core/src/types.ts)
-- [x] Constants (packages/core/src/constants.ts)
-- [x] pnpm install dependencies (typescript@5.7, @types/node)
-- [x] First npx tsc --noEmit clean pass
-- [ ] Step 1.4: pnpm install all deps per TECH_STACK.md, full monorepo tsc pass
+## Day 2 Plan
+Start with step 2.1 — Provider Setup:
+- packages/blockchain/src/provider.ts (ethers.js provider for BSC, RPC config)
+- Test: can read BNB balance of a known address
+Then proceed through 2.2 (tokens), 2.3 (history), 2.4 (scanner/profile builder)
 
 ## Blockers
 - Need BSCScan API key (free: bscscan.com/myapikey)
 - Verify Ankr free RPC works for BSC
 
-## Next (Day 2)
-- Wallet scanner + profile builder
+## Next After Day 2
+- Day 3: AI agent core, tool framework, dual-agent architecture

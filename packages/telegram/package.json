@@ -10,7 +10,8 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@binancebuddy/buddy": "workspace:*",
     "@binancebuddy/core": "workspace:*",
-    "@binancebuddy/buddy": "workspace:*"
+    "grammy": "1"
   }
 }
