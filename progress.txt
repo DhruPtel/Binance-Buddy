@@ -1,0 +1,29 @@
+# Binance Buddy — Progress
+
+## Current State
+- Day 1 (Mar 10): Environment setup complete, monorepo scaffolded
+- OpenClaw installed, binancebuddy agent created
+- Canonical docs added to project root
+- NEXT: Install dependencies, create core types, first tsc pass
+
+## Completed
+- [x] WSL2 + Node 23 + pnpm + Redis
+- [x] OpenClaw onboarded with Claude Sonnet 4
+- [x] Monorepo: 8 packages with package.json + tsconfig.json
+- [x] All canonical docs: PRD, APP_FLOW, TECH_STACK, FRONTEND_GUIDELINES, BACKEND_STRUCTURE, IMPLEMENTATION_PLAN
+- [x] OPENCLAW.md agent operating manual
+- [x] progress.txt + lessons.md
+
+## In Progress
+- [x] Core types (packages/core/src/types.ts)
+- [x] Constants (packages/core/src/constants.ts)
+- [x] pnpm install dependencies (typescript@5.7, @types/node)
+- [x] First npx tsc --noEmit clean pass
+- [ ] Step 1.4: pnpm install all deps per TECH_STACK.md, full monorepo tsc pass
+
+## Blockers
+- Need BSCScan API key (free: bscscan.com/myapikey)
+- Verify Ankr free RPC works for BSC
+
+## Next (Day 2)
+- Wallet scanner + profile builder
