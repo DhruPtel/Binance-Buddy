@@ -58,6 +58,43 @@ The agent reads this at session start and never makes the same mistake twice.
 
 ---
 
-## BSC / Binance Buddy Specific (add as we discover)
+## BSC / Binance Buddy Specific (Day 1 — Mar 10)
 
-(empty — will fill during development)
+### pnpm / Tooling
+- `@types/node@23` does NOT exist as a version tag. Use `@types/node@ts5.7` or just
+  `@types/node` (latest). The versioning scheme is `ts{typescript-version}` tags, not
+  Node.js version numbers.
+- `npx tsc --noEmit` will silently install a rogue `tsc@2.0.4` package instead of using
+  the workspace TypeScript. Always use `pnpm exec tsc --noEmit` inside a package, or
+  `pnpm --filter @binancebuddy/core exec tsc --noEmit` from root. Never `npx tsc`.
+- When `pnpm add -w` says "Already up to date" but the dep isn't in node_modules/.bin,
+  check root `package.json` — it may already be declared but not yet linked. Run
+  `pnpm install` from root to sync.
+
+### Monorepo tsconfig
+- The root `tsconfig.base.json` uses `"module": "NodeNext"` + `"moduleResolution": "NodeNext"`.
+  This is correct for all Node.js packages (blockchain, ai, buddy, strategies, telegram, server).
+- The `extension` package needs DIFFERENT settings for Vite/React:
+  `"module": "ESNext"`, `"moduleResolution": "bundler"`, `"jsx": "react-jsx"`,
+  `"lib": ["ES2022", "DOM", "DOM.Iterable"]`, `"composite": false`, `"noEmit": true`.
+  Override ALL of these in `packages/extension/tsconfig.json` — do NOT rely on base.
+- When using project references (`composite: true`), the extension can't be a composite
+  project if it has `noEmit: true`. Set `composite: false` on the extension.
+
+### Workspace Structure
+- The OpenClaw `workspace-binancebuddy` directory holds agent config files (SOUL.md,
+  AGENTS.md, etc.) and a bare git repo. These should be merged INTO the project repo,
+  not kept separate.
+- `cp -rn` (no-clobber) is the right tool for merging workspace files without overwriting
+  existing project files.
+- The project was named "ChainBuddy" in early planning docs (DEVELOPMENT_PLAN.md) but
+  canonical name is "Binance Buddy" per OPENCLAW.md. All package prefixes are
+  `@binancebuddy/`, OpenClaw agent is `binancebuddy`. DEVELOPMENT_PLAN.md is legacy —
+  OPENCLAW.md is authoritative.
+
+### Type Design
+- XP_THRESHOLDS as a `Record<EvolutionStage, number>` const in types.ts works cleanly
+  with the stage union type — no need for a separate enum.
+- Import type aliases (`TradeMode`) in constants.ts need `.js` extension on the import
+  path when using NodeNext module resolution: `from './types.js'` not `from './types'`.
+  Applies to ALL cross-file imports in NodeNext packages.

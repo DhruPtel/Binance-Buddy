@@ -1,31 +1,23 @@
 # Binance Buddy — Progress
 
 ## Current State
-- Day 1 COMPLETE (Mar 10)
-- Day 2 NEXT: Wallet scanner + profile builder (step 2.1 — provider setup)
+Day 1 COMPLETE. Day 2 starts with step 2.1 — provider setup.
 
-## Completed
-- [x] WSL2 + Node 23 + pnpm + Redis
-- [x] OpenClaw onboarded with Claude Sonnet 4
-- [x] Monorepo: 8 packages with package.json + tsconfig.json
-- [x] All canonical docs: PRD, APP_FLOW, TECH_STACK, FRONTEND_GUIDELINES, BACKEND_STRUCTURE, IMPLEMENTATION_PLAN
-- [x] OPENCLAW.md agent operating manual
-- [x] progress.txt + lessons.md
-- [x] packages/core/src/types.ts — all shared types
-- [x] packages/core/src/constants.ts — BSC addresses, guardrails, BigInt serializer
-- [x] packages/core/src/index.ts — barrel re-export
-- [x] All deps installed: ethers@6, grammy@1, express@4, react@18, three@0.128, vite, tailwind, vitest, tsx, etc.
-- [x] npx tsc --noEmit passes clean on all 8 packages
-
-## Day 2 Plan
-Start with step 2.1 — Provider Setup:
-- packages/blockchain/src/provider.ts (ethers.js provider for BSC, RPC config)
-- Test: can read BNB balance of a known address
-Then proceed through 2.2 (tokens), 2.3 (history), 2.4 (scanner/profile builder)
+## Day 2 Plan (Mar 11)
+- 2.1: packages/blockchain/src/provider.ts — ethers.js provider, BSC RPC config
+- 2.2: packages/blockchain/src/tokens.ts — BEP-20 balances (needs BSCScan key)
+- 2.3: packages/blockchain/src/history.ts — last 500 txs, categorization
+- 2.4: packages/blockchain/src/scanner.ts — profile builder
 
 ## Blockers
-- Need BSCScan API key (free: bscscan.com/myapikey)
-- Verify Ankr free RPC works for BSC
+- BSCScan API key needed before 2.2 (free at bscscan.com/myapikey)
+- Confirm Ankr free RPC works for BSC mainnet
 
-## Next After Day 2
-- Day 3: AI agent core, tool framework, dual-agent architecture
+## Completed (Day 1, Mar 10)
+- Monorepo scaffolded: 8 packages, pnpm workspaces, turbo
+- All canonical docs in root (PRD, APP_FLOW, TECH_STACK, FRONTEND_GUIDELINES, BACKEND_STRUCTURE, IMPLEMENTATION_PLAN, OPENCLAW.md)
+- packages/core/src/types.ts — all shared types
+- packages/core/src/constants.ts — BSC addresses, guardrails, BigInt serializer
+- packages/core/src/index.ts — barrel re-export
+- All deps installed: ethers@6, grammy@1, express@4, react@18, three@0.128, vite, tailwind@3, vitest, tsx
+- pnpm exec tsc --noEmit passes clean on all 8 packages
