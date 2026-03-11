@@ -1,17 +1,19 @@
 # Binance Buddy — Progress
 
 ## Current State
-Day 1 COMPLETE. Day 2 starts with step 2.1 — provider setup.
-
-## Day 2 Plan (Mar 11)
-- 2.1: packages/blockchain/src/provider.ts — ethers.js provider, BSC RPC config
-- 2.2: packages/blockchain/src/tokens.ts — BEP-20 balances (needs BSCScan key)
-- 2.3: packages/blockchain/src/history.ts — last 500 txs, categorization
-- 2.4: packages/blockchain/src/scanner.ts — profile builder
+Day 2 steps 2.1–2.4 COMPLETE. Next: step 2.5 (validate & commit) is done. Day 3 starts with step 3.1 — tool interface.
 
 ## Blockers
-- BSCScan API key needed before 2.2 (free at bscscan.com/myapikey)
-- Confirm Ankr free RPC works for BSC mainnet
+- BSCScan API key needed for live token discovery + tx history (free at bscscan.com/myapikey)
+- Ankr free RPC confirmed working for BSC mainnet ✓
+
+## Completed (Day 2, Mar 11)
+- 2.1: packages/blockchain/src/provider.ts — createProvider, createFallbackProvider, getBnbBalance, checkProviderHealth
+- 2.2: packages/blockchain/src/tokens.ts — discoverTokens (BSCScan), getTokenBalance (on-chain), getTokenPrices + getBnbPriceUsd (CoinGecko), scanTokens orchestrator
+- 2.3: packages/blockchain/src/history.ts — fetchTransactionHistory (BSCScan), categorizeTx (selector map), countByCategory, getProtocolUsage
+- 2.4: packages/blockchain/src/scanner.ts — scanWallet (full WalletState), buildProfile (archetype, risk score, trading frequency, preferred tokens)
+- All 19 tests pass (4 test files), pnpm exec tsc --noEmit clean
+- Audit fixes: .env.example, vitest.config.ts (with workspace aliases), server deps fixed, OpenClaw docs added
 
 ## Completed (Day 1, Mar 10)
 - Monorepo scaffolded: 8 packages, pnpm workspaces, turbo
