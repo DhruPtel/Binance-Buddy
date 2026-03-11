@@ -122,3 +122,86 @@ The agent reads this at session start and never makes the same mistake twice.
 - Import type aliases (`TradeMode`) in constants.ts need `.js` extension on the import
   path when using NodeNext module resolution: `from './types.js'` not `from './types'`.
   Applies to ALL cross-file imports in NodeNext packages.
+- Adding `'unknown'` to a discriminated union (e.g. `TraderArchetype`) may require
+  re-scanning all existing switch/if chains that handle that union. Add it from the start
+  if a graceful-degradation path exists.
+
+---
+
+## AI Agent Package (Day 3 — Mar 11)
+
+### Anthropic SDK Tool Loop
+- Tool use is multi-round. Loop until `stop_reason === 'end_turn'` OR max rounds hit.
+  Each round: call Claude → extract `tool_use` blocks → execute tools → append
+  `tool_result` block with `tool_use_id` → call Claude again. Max 5 rounds is safe.
+- Tool schemas use `input_schema` in the Anthropic SDK, NOT `parameters`.
+  Mapping: `AgentTool.parameters` (JSON Schema) → `Anthropic.Tool.input_schema`.
+- `content` in Claude responses can be a string OR an array of content blocks.
+  Always check `Array.isArray(content)` before iterating. Text blocks have `type: 'text'`.
+- Circuit breaker counter must be module-level (not instance-level) to survive
+  across calls. Reset via exported `resetCircuitBreaker()`.
+
+### Workspace Packages in pnpm
+- **Cannot `pnpm add @binancebuddy/blockchain`** — workspace packages are not in the npm
+  registry. Edit `package.json` manually and add `"@binancebuddy/blockchain": "workspace:*"`.
+  Then run `pnpm install` from root to link it.
+- After adding a workspace dep, run `pnpm --filter @binancebuddy/core build` before
+  type-checking downstream packages — stale dist causes phantom type errors.
+
+### Server / Express with TypeScript
+- `export { app }` in a server file causes TS error "inferred type cannot be named" if
+  `app` is typed as `ReturnType<typeof express>`. Fix: explicitly type as
+  `const app: Express = express()` with `import express, { type Express }`.
+- `ANTHROPIC_API_KEY` is required for chat but the agent should degrade gracefully:
+  return a clear "my API key isn't configured" message rather than throwing.
+
+### Research Agent
+- The research agent runs as an in-process `setInterval`, not a separate process.
+  Runs immediately on startup, then every `RESEARCH_INTERVAL_MS` (30 min).
+- `getLatestReport()` returns `null` until the first run completes — callers must
+  handle null. `isReportFresh()` checks `now - report.timestamp < RESEARCH_MIN_INTERVAL_MS`.
+
+---
+
+## DEX Trading Engine (Day 4 — Mar 11)
+
+### PancakeSwap V2 Routing
+- Try direct pair first (`[tokenIn, tokenOut]`). If `getAmountsOut` reverts, the pair
+  doesn't exist — route via WBNB (`[tokenIn, WBNB, tokenOut]`).
+- `swapExactETHForTokens` requires `value: amountIn` (native BNB sent as msg.value).
+  The path must start with WBNB even though caller sends native BNB.
+- `swapExactTokensForETH` is for token → BNB. `swapExactTokensForTokens` for everything else.
+- Always use `NATIVE_BNB_ADDRESS` (0xEeee...) as the user-facing BNB token address,
+  map to `WBNB_ADDRESS` only when building the router path.
+
+### Guardrail Pipeline Order
+- Simulate BEFORE checking spending limits so you get the revert reason if it fails.
+  `eth_estimateGas` is the simulation — it internally dry-runs the call and throws on revert.
+- Extract revert reason from error message with regex:
+  `/reverted with reason string '(.+?)'/`
+- All 5 guardrail checks (simulation, spendingLimit, feeReserve, riskGate, protocolAllowlist)
+  run together and aggregate into a single `GuardrailResult`. Never early-exit — user needs
+  to see ALL failures, not just the first.
+
+### Type Naming Conflicts
+- `SimulationResult` is defined in BOTH `packages/core/src/types.ts` AND
+  `packages/blockchain/src/dex/gas.ts`. The core version has `gasEstimate: string` (required);
+  the local version has `gasEstimate?: bigint` (optional bigint). They are incompatible.
+  **Fix**: when building the `GuardrailResult.simulation` object in executor.ts, populate
+  `gasEstimate` from `quote.gasEstimate` (already a string), not from the local simulation result.
+- When a function has two different return shapes (success/failure branches), TypeScript
+  infers a union type, NOT the declared interface. Accessing a field only present in one
+  branch will error even if the interface declares it optional. Use the declared return type
+  annotation explicitly: `): Promise<SimulationResult>`.
+
+### ERC-20 Approval Pattern
+- Always call `checkApproval()` before every swap (even for the same token). Allowances can
+  be revoked or partially consumed. Never assume unlimited approval persists.
+- `MaxUint256` from ethers is the standard unlimited approval value. Import as named export.
+- Approval tx must fully confirm (`tx.wait()`) before the swap tx is submitted.
+
+### Gas Estimation
+- BSC uses legacy pricing (no EIP-1559). `feeData.gasPrice` is the field to use.
+  `feeData.maxFeePerGas` will be null on BSC.
+- 3 gwei is a safe fallback gas price on BSC mainnet. Single-hop swaps: ~150k gas.
+  Multi-hop (via WBNB): ~220k gas. Approve: ~60k gas.

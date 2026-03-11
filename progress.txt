@@ -3,22 +3,6 @@
 ## Current State
 Day 4 COMPLETE. DEX trading engine built. Next: Day 5 — Buddy system & Extension shell.
 
-## Day 4 Completed (Mar 11)
-- 4.1: packages/blockchain/src/dex/pancakeswap.ts — getSwapQuote, findBestPath (direct + WBNB routing), getRouterContract
-- 4.2: packages/blockchain/src/dex/executor.ts — 8-step guardrail pipeline (build → simulate → check → cap → confirm → submit → receipt → result)
-- 4.3: packages/blockchain/src/dex/approval.ts — checkApproval, executeApproval (ERC-20 allowance check + approve())
-- 4.4: packages/blockchain/src/dex/gas.ts — getGasPrice, estimateGasCost, simulateTransaction (eth_estimateGas with revert detection)
-- 4.5: swap tool wired to prepareSwap() — real PancakeSwap V2 quotes replace Day 3 stub
-- 19/19 tests pass, pnpm exec tsc --noEmit clean on all packages
-
-## Day 3 Completed (Mar 11)
-- 3.1: packages/ai/src/tools/index.ts — tool registry, getTools(), executeTool()
-- 3.2: 7 tools — check_positions, scan_wallet, get_token_info, swap_tokens, find_farms, set_alert, snipe_launch
-- 3.3: packages/ai/src/prompts/system.ts — dynamic system prompt (buddy stage, mood, portfolio, market)
-- 3.4: packages/ai/src/research.ts — research agent, CoinGecko market data, 30m loop
-- 3.5: packages/ai/src/agent.ts — execution agent, Claude Sonnet 4.6, multi-round tool loop, circuit breaker
-- 3.6: server wired — /api/tools, /api/chat, /api/research/latest, /api/research/run
-
 ## API Strategy (settled)
 - Token balances: Multicall3 on-chain (zero API keys needed)
 - Prices: CoinGecko free tier
@@ -27,21 +11,42 @@ Day 4 COMPLETE. DEX trading engine built. Next: Day 5 — Buddy system & Extensi
 
 ## Blockers
 - None — wallet scanner works with zero API keys (token balances + BNB price only)
-- Add MORALIS_API_KEY for tx history + archetype detection (free at moralis.io)
+- Add ANTHROPIC_API_KEY (console.anthropic.com) for AI chat to function
+- Add MORALIS_API_KEY (moralis.io, free) for tx history + archetype detection
 
-## Completed (Day 2, Mar 11)
+---
+
+## Day 4 Completed (Mar 11)
+- 4.1: packages/blockchain/src/dex/pancakeswap.ts — getSwapQuote, findBestPath (direct pair + WBNB routing), getRouterContract
+- 4.2: packages/blockchain/src/dex/executor.ts — 8-step guardrail pipeline: build tx → simulate (eth_estimateGas) → check limits/reserve/allowlist → cap amount → return for confirm → execute approval → submit → receipt
+- 4.3: packages/blockchain/src/dex/approval.ts — checkApproval (reads ERC-20 allowance on-chain), executeApproval (approve() tx)
+- 4.4: packages/blockchain/src/dex/gas.ts — getGasPrice, estimateGasCost, simulateTransaction (revert detection + reason extraction)
+- 4.5: packages/ai/src/tools/swap.ts — wired to real prepareSwap(); real PancakeSwap V2 quotes replace Day 3 stub
+- 4.6: 19/19 tests pass, pnpm exec tsc --noEmit clean on all packages
+
+## Day 3 Completed (Mar 11)
+- 3.1: packages/ai/src/tools/index.ts — AgentTool interface, tool registry, getTools(context), executeTool(name, params, context)
+- 3.2: 7 tools built — check_positions, scan_wallet, get_token_info, swap_tokens, find_farms, set_alert, snipe_launch (last requires trenchesMode)
+- 3.3: packages/ai/src/prompts/system.ts — buildSystemPrompt(context, tools): stage personalities (seedling→apex), mood modifiers, wallet summary, tool list, 7 safety rules
+- 3.4: packages/ai/src/research.ts — runResearch() fetches CoinGecko BNB price + baseline farms; startResearchLoop() runs every 30m; getLatestReport() / isReportFresh()
+- 3.5: packages/ai/src/agent.ts — runAgent(): Claude Sonnet 4.6, max_tokens 1024, multi-round tool loop (max 5), circuit breaker (3 failures → pause), XP on tool use
+- 3.6: server wired — GET /api/tools, POST /api/chat, GET /api/research/latest, POST /api/research/run; startResearchLoop() called on app.listen
+- 19/19 tests pass, pnpm exec tsc --noEmit clean on all packages
+
+## Day 2 Completed (Mar 11)
 - 2.1: packages/blockchain/src/provider.ts — createProvider, createFallbackProvider, getBnbBalance, checkProviderHealth
-- 2.2: packages/blockchain/src/tokens.ts — discoverTokens (BSCScan), getTokenBalance (on-chain), getTokenPrices + getBnbPriceUsd (CoinGecko), scanTokens orchestrator
-- 2.3: packages/blockchain/src/history.ts — fetchTransactionHistory (BSCScan), categorizeTx (selector map), countByCategory, getProtocolUsage
+- 2.2: packages/blockchain/src/tokens.ts — Multicall3 batched balanceOf for all SAFE_TOKENS, CoinGecko prices, scanTokens orchestrator (zero API keys needed)
+- 2.3: packages/blockchain/src/history.ts — fetchTransactionHistory (Moralis primary, Ankr fallback, [] if no keys), categorizeTx (selector map), countByCategory, getProtocolUsage
 - 2.4: packages/blockchain/src/scanner.ts — scanWallet (full WalletState), buildProfile (archetype, risk score, trading frequency, preferred tokens)
+- 2.5: packages/blockchain/src/rate-limiter.ts — RateLimiter singleton, 30k/day cap, 60s cache, wraps all external API calls
 - All 19 tests pass (4 test files), pnpm exec tsc --noEmit clean
-- Audit fixes: .env.example, vitest.config.ts (with workspace aliases), server deps fixed, OpenClaw docs added
+- Audit fixes: .env.example (no real keys), vitest.config.ts (workspace aliases), server deps fixed
 
-## Completed (Day 1, Mar 10)
+## Day 1 Completed (Mar 10)
 - Monorepo scaffolded: 8 packages, pnpm workspaces, turbo
 - All canonical docs in root (PRD, APP_FLOW, TECH_STACK, FRONTEND_GUIDELINES, BACKEND_STRUCTURE, IMPLEMENTATION_PLAN, OPENCLAW.md)
-- packages/core/src/types.ts — all shared types
-- packages/core/src/constants.ts — BSC addresses, guardrails, BigInt serializer
+- packages/core/src/types.ts — all shared types (WalletState, BuddyState, SwapParams, SwapQuote, AgentContext, etc.)
+- packages/core/src/constants.ts — BSC addresses, PancakeSwap V2/V3 routers, guardrail configs, BigInt serializer
 - packages/core/src/index.ts — barrel re-export
 - All deps installed: ethers@6, grammy@1, express@4, react@18, three@0.128, vite, tailwind@3, vitest, tsx
 - pnpm exec tsc --noEmit passes clean on all 8 packages
