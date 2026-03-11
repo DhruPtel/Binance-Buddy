@@ -12,6 +12,7 @@ import {
   SAFE_TOKENS,
   TOKEN_SYMBOL_MAP,
 } from '@binancebuddy/core';
+import { rateLimiter } from './rate-limiter.js';
 
 // ---------------------------------------------------------------------------
 // ABIs
@@ -134,13 +135,16 @@ export async function getTokenPrices(
     if (apiKey) url.searchParams.set('x_cg_demo_api_key', apiKey);
 
     try {
-      const res = await fetch(url.toString());
-      const json = (await res.json()) as Record<string, { usd?: number }>;
+      const cacheKey = `coingecko:prices:${batch.map((a) => a.toLowerCase()).sort().join(',')}`;
+      const json = await rateLimiter.track(cacheKey, async () => {
+        const r = await fetch(url.toString());
+        return (await r.json()) as Record<string, { usd?: number }>;
+      });
       for (const [addr, data] of Object.entries(json)) {
         if (data.usd != null) prices[addr.toLowerCase()] = data.usd;
       }
     } catch {
-      // CoinGecko rate limit or network error — continue with what we have
+      // CoinGecko rate limit, network error, or daily cap — continue with what we have
     }
   }
 
@@ -157,8 +161,10 @@ export async function getBnbPriceUsd(apiKey?: string): Promise<number> {
   if (apiKey) url.searchParams.set('x_cg_demo_api_key', apiKey);
 
   try {
-    const res = await fetch(url.toString());
-    const json = (await res.json()) as { binancecoin?: { usd?: number } };
+    const json = await rateLimiter.track('coingecko:bnbprice', async () => {
+      const r = await fetch(url.toString());
+      return (await r.json()) as { binancecoin?: { usd?: number } };
+    });
     return json.binancecoin?.usd ?? 0;
   } catch {
     return 0;

@@ -12,15 +12,17 @@ import {
   scanWallet,
   buildProfile,
   getBnbPriceUsd,
+  rateLimiter,
 } from '@binancebuddy/blockchain';
-import { safeStringify } from '@binancebuddy/core';
+import { safeStringify, MULTICALL3_ADDRESS } from '@binancebuddy/core';
 
 const app: Express = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT ?? 3000;
-const ANKR_API_KEY = process.env.ANKR_API_KEY ?? ''; // optional — paid, enables tx history
+const MORALIS_API_KEY = process.env.MORALIS_API_KEY ?? '';
+const ANKR_API_KEY = process.env.ANKR_API_KEY ?? ''; // fallback if Moralis not set
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY ?? '';
 
 // Reusable provider
@@ -42,26 +44,42 @@ app.get('/api/health', async (_req, res) => {
     results.provider = { status: 'error', detail: String(e) };
   }
 
-  // Multicall3 (canary call — checks the contract is reachable)
+  // Multicall3 — use the already-configured provider (same RPC as wallet scans)
   try {
-    const r = await fetch(process.env.BSC_RPC_URL || 'https://rpc.ankr.com/bsc', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', method: 'eth_getCode',
-        params: ['0xcA11bde05977b3631167028862bE2a173976CA11', 'latest'],
-        id: 1,
-      }),
-    });
-    const j = (await r.json()) as { result?: string };
-    const hasCode = j.result && j.result !== '0x';
+    const code = await provider.getCode(MULTICALL3_ADDRESS);
+    const hasCode = code !== '0x';
     results.multicall3 = {
       status: hasCode ? 'ok' : 'warning',
-      detail: hasCode ? 'Multicall3 reachable on BSC' : 'No bytecode — wrong network?',
+      detail: hasCode ? 'Multicall3 contract reachable' : 'No bytecode — wrong network?',
     };
   } catch (e) {
     results.multicall3 = { status: 'error', detail: String(e) };
   }
+
+  // Moralis (tx history)
+  if (MORALIS_API_KEY) {
+    try {
+      const r = await fetch(
+        'https://deep-index.moralis.io/api/v2.2/0x10ED43C718714eb63d5aA57B78B54704E256024E?chain=bsc&limit=1',
+        { headers: { 'X-API-Key': MORALIS_API_KEY } },
+      );
+      if (r.ok) {
+        results.moralis = { status: 'ok', detail: 'Tx history enabled via Moralis' };
+      } else {
+        results.moralis = { status: 'error', detail: `Moralis ${r.status}: ${r.statusText}` };
+      }
+    } catch (e) {
+      results.moralis = { status: 'error', detail: String(e) };
+    }
+  } else {
+    results.moralis = { status: 'warning', detail: 'No MORALIS_API_KEY — tx history disabled' };
+  }
+
+  // Rate limiter stats
+  results.rateLimit = {
+    status: rateLimiter.remaining > 5000 ? 'ok' : rateLimiter.remaining > 0 ? 'warning' : 'error',
+    detail: `${rateLimiter.count.toLocaleString()} calls today, ${rateLimiter.remaining.toLocaleString()} remaining`,
+  };
 
   // CoinGecko
   try {
@@ -83,7 +101,12 @@ app.post('/api/scan/:address', async (req, res) => {
 
   try {
     const walletState = await scanWallet(provider, address, COINGECKO_API_KEY || undefined);
-    const fullProfile = await buildProfile(address, walletState.tokens, ANKR_API_KEY || undefined);
+    const fullProfile = await buildProfile(
+      address,
+      walletState.tokens,
+      MORALIS_API_KEY || undefined,
+      ANKR_API_KEY || undefined,
+    );
 
     res.type('application/json').send(safeStringify({ walletState, profile: fullProfile }));
   } catch (e) {
@@ -137,10 +160,12 @@ app.listen(PORT, () => {
   console.log(`    GET  /api/health`);
   console.log(`    POST /api/scan/:address`);
   console.log(`    GET  /api/tests\n`);
-  if (ANKR_API_KEY) {
-    console.log(`  ℹ  ANKR_API_KEY set — tx history enabled`);
+  if (MORALIS_API_KEY) {
+    console.log(`  ℹ  MORALIS_API_KEY set — tx history enabled`);
+  } else if (ANKR_API_KEY) {
+    console.log(`  ℹ  ANKR_API_KEY set — tx history via Ankr fallback`);
   } else {
-    console.log(`  ℹ  No ANKR_API_KEY — tx history disabled (wallet scan still works via Multicall3)`);
+    console.log(`  ℹ  No tx history key — wallet scan works via Multicall3 (token balances only)`);
   }
 });
 
@@ -258,6 +283,8 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     <div id="health-statuses">
       <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Provider</span><span class="status-detail">Not checked</span></div>
       <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Multicall3</span><span class="status-detail">Not checked</span></div>
+      <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Moralis</span><span class="status-detail">Not checked</span></div>
+      <div class="status-row"><span class="status-dot pending"></span><span class="status-label">RateLimit</span><span class="status-detail">Not checked</span></div>
       <div class="status-row"><span class="status-dot pending"></span><span class="status-label">CoinGecko</span><span class="status-detail">Not checked</span></div>
     </div>
     <div style="margin-top: 16px;">

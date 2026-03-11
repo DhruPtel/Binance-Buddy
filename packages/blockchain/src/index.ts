@@ -26,3 +26,5 @@ export {
   scanWallet,
   buildProfile,
 } from './scanner.js';
+
+export { rateLimiter } from './rate-limiter.js';

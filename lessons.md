@@ -105,12 +105,16 @@ The agent reads this at session start and never makes the same mistake twice.
   - Ankr API key env var: `ANKR_API_KEY` (NOT BSCSCAN_API_KEY)
 - **Ankr Enhanced API requires a paid plan** — even the "freemium" signup only gives a Node RPC key.
   The `/multichain` endpoint returns -32056 "Proxy error" with a node key.
-- **Final working approach (zero paid APIs):**
+- **Final working approach:**
   - Token balances: Multicall3 (`0xcA11bde05977b3631167028862bE2a173976CA11`, deployed on BSC) batches
     `balanceOf` for all SAFE_TOKENS into a single RPC call. No API key needed.
-  - Prices: CoinGecko free tier (`/simple/token_price/binance-smart-chain`).
-  - Tx history: optional. Returns `[]` if no `ANKR_API_KEY`. Archetype set to `'unknown'` in that case.
-  - `TraderArchetype` includes `'unknown'` for wallets with no tx history data.
+  - Prices: CoinGecko free tier (`/simple/token_price/binance-smart-chain`). Rate-limited to 30k/day.
+  - Tx history: Moralis primary (`MORALIS_API_KEY`, free at moralis.io), Ankr fallback, else `[]`.
+    Archetype set to `'unknown'` if neither key is set. `TraderArchetype` includes `'unknown'`.
+  - Rate limiter (`rate-limiter.ts`): 30k/day hard cap, 20k warning, 60s in-memory cache.
+    Prevents burning Moralis free tier. Multicall3 / on-chain reads are NOT counted (free).
+- **Multicall3 health check**: use `provider.getCode(MULTICALL3_ADDRESS)` — NOT a raw fetch to a
+  hardcoded RPC URL. The provider is already configured with the correct RPC.
 
 ### Type Design
 - XP_THRESHOLDS as a `Record<EvolutionStage, number>` const in types.ts works cleanly

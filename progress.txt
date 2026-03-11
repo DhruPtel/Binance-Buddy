@@ -1,11 +1,17 @@
 # Binance Buddy — Progress
 
 ## Current State
-Day 2 steps 2.1–2.4 COMPLETE. Next: step 2.5 (validate & commit) is done. Day 3 starts with step 3.1 — tool interface.
+Day 2 complete. Blockchain package fully operational. Next: Day 3 step 3.1 — AI tool interface.
+
+## API Strategy (settled)
+- Token balances: Multicall3 on-chain (zero API keys needed)
+- Prices: CoinGecko free tier
+- Tx history: Moralis free tier (MORALIS_API_KEY) → Ankr paid fallback → [] if neither
+- Rate limiter: 30k/day cap, 60s cache — in packages/blockchain/src/rate-limiter.ts
 
 ## Blockers
-- BSCScan API key needed for live token discovery + tx history (free at bscscan.com/myapikey)
-- Ankr free RPC confirmed working for BSC mainnet ✓
+- None — wallet scanner works with zero API keys (token balances + BNB price only)
+- Add MORALIS_API_KEY for tx history + archetype detection (free at moralis.io)
 
 ## Completed (Day 2, Mar 11)
 - 2.1: packages/blockchain/src/provider.ts — createProvider, createFallbackProvider, getBnbBalance, checkProviderHealth

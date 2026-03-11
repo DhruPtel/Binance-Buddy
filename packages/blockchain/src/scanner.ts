@@ -70,16 +70,18 @@ export async function scanWallet(
 export async function buildProfile(
   walletAddress: string,
   tokens: TokenInfo[],
+  moralisApiKey?: string,
   ankrApiKey?: string,
 ): Promise<UserProfile> {
-  const txs = await fetchTransactionHistory(walletAddress, ankrApiKey);
+  const txs = await fetchTransactionHistory(walletAddress, moralisApiKey, ankrApiKey);
   const categoryCounts = countByCategory(txs);
   const protocolUsage = getProtocolUsage(txs);
 
   const totalTxCount = txs.length;
   // When tx history is unavailable (no API key), report 'unknown' rather than
   // misclassifying a wallet as 'newcomer' based on missing data.
-  const archetype: TraderArchetype = (!ankrApiKey || totalTxCount === 0)
+  const noHistoryKey = !moralisApiKey && !ankrApiKey;
+  const archetype: TraderArchetype = noHistoryKey
     ? 'unknown'
     : determineArchetype(categoryCounts, tokens, totalTxCount);
   const riskScore = calculateRiskScore(tokens, categoryCounts);
