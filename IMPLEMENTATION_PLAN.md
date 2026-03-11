@@ -243,7 +243,13 @@
 - [ ] Market data cache endpoints
 - [ ] Telegram webhook handler
 
-### 7.5 Validate & Commit
+### 7.5 Wire OpenClaw Skills
+- [ ] Create SKILL.md files that map each tool to a server endpoint or CLI command
+- [ ] Each skill: name, description, endpoint (GET/POST), parameters, example response
+- [ ] Tools covered: swap_tokens, scan_wallet, get_token_info, check_positions, set_alert, find_farms, snipe_launch
+- [ ] Verify OpenClaw can discover and invoke each skill
+
+### 7.6 Validate & Commit
 - [ ] Sniper detects new pairs (testnet)
 - [ ] Farm scanner returns results
 - [ ] Telegram bot responds to basic commands

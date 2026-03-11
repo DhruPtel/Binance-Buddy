@@ -11,8 +11,11 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@binancebuddy/ai": "workspace:*",
+    "@binancebuddy/blockchain": "workspace:*",
     "@binancebuddy/buddy": "workspace:*",
     "@binancebuddy/core": "workspace:*",
+    "@binancebuddy/strategies": "workspace:*",
     "@binancebuddy/telegram": "workspace:*",
     "cors": "^2.8.6",
     "express": "4",
