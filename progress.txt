@@ -1,7 +1,23 @@
 # Binance Buddy — Progress
 
 ## Current State
-Day 2 complete. Blockchain package fully operational. Next: Day 3 step 3.1 — AI tool interface.
+Day 4 COMPLETE. DEX trading engine built. Next: Day 5 — Buddy system & Extension shell.
+
+## Day 4 Completed (Mar 11)
+- 4.1: packages/blockchain/src/dex/pancakeswap.ts — getSwapQuote, findBestPath (direct + WBNB routing), getRouterContract
+- 4.2: packages/blockchain/src/dex/executor.ts — 8-step guardrail pipeline (build → simulate → check → cap → confirm → submit → receipt → result)
+- 4.3: packages/blockchain/src/dex/approval.ts — checkApproval, executeApproval (ERC-20 allowance check + approve())
+- 4.4: packages/blockchain/src/dex/gas.ts — getGasPrice, estimateGasCost, simulateTransaction (eth_estimateGas with revert detection)
+- 4.5: swap tool wired to prepareSwap() — real PancakeSwap V2 quotes replace Day 3 stub
+- 19/19 tests pass, pnpm exec tsc --noEmit clean on all packages
+
+## Day 3 Completed (Mar 11)
+- 3.1: packages/ai/src/tools/index.ts — tool registry, getTools(), executeTool()
+- 3.2: 7 tools — check_positions, scan_wallet, get_token_info, swap_tokens, find_farms, set_alert, snipe_launch
+- 3.3: packages/ai/src/prompts/system.ts — dynamic system prompt (buddy stage, mood, portfolio, market)
+- 3.4: packages/ai/src/research.ts — research agent, CoinGecko market data, 30m loop
+- 3.5: packages/ai/src/agent.ts — execution agent, Claude Sonnet 4.6, multi-round tool loop, circuit breaker
+- 3.6: server wired — /api/tools, /api/chat, /api/research/latest, /api/research/run
 
 ## API Strategy (settled)
 - Token balances: Multicall3 on-chain (zero API keys needed)
