@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // =============================================================================
 // @binancebuddy/server — Dev Dashboard & API
 // =============================================================================
@@ -23,7 +24,7 @@ const BSCSCAN_API_KEY = process.env.BSCSCAN_API_KEY ?? '';
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY ?? '';
 
 // Reusable provider
-const provider = createProvider('mainnet', process.env.BSC_RPC_URL);
+const provider = createProvider('mainnet', process.env.BSC_RPC_URL || undefined);
 
 // ---------------------------------------------------------------------------
 // API Routes
@@ -41,12 +42,18 @@ app.get('/api/health', async (_req, res) => {
     results.provider = { status: 'error', detail: String(e) };
   }
 
-  // BSCScan
+  // BSCScan / Etherscan V2
   if (BSCSCAN_API_KEY) {
     try {
-      const r = await fetch(`https://api.bscscan.com/api?module=stats&action=bnbprice&apikey=${BSCSCAN_API_KEY}`);
-      const j = (await r.json()) as { status: string };
-      results.bscscan = { status: j.status === '1' ? 'ok' : 'error', detail: `API key configured` };
+      const r = await fetch(`https://api.etherscan.io/v2/api?chainid=56&module=account&action=balance&address=0x10ED43C718714eb63d5aA57B78B54704E256024E&apikey=${BSCSCAN_API_KEY}`);
+      const j = (await r.json()) as { status: string; message: string; result: string };
+      if (j.status === '1') {
+        results.bscscan = { status: 'ok', detail: 'Etherscan V2 API working' };
+      } else if (j.result?.includes('Free API access is not supported')) {
+        results.bscscan = { status: 'warning', detail: 'Key set — BSC requires paid Etherscan V2 plan' };
+      } else {
+        results.bscscan = { status: 'error', detail: j.result || j.message };
+      }
     } catch (e) {
       results.bscscan = { status: 'error', detail: String(e) };
     }

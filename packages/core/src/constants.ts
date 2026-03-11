@@ -177,7 +177,8 @@ export const XP_REWARDS: Record<string, number> = {
 // BSCScan
 // ---------------------------------------------------------------------------
 
-export const BSCSCAN_API_URL = 'https://api.bscscan.com/api';
+// Etherscan V2 unified API with chainid for BSC
+export const BSCSCAN_API_URL = 'https://api.etherscan.io/v2/api?chainid=56';
 export const BSCSCAN_TX_LIMIT = 500; // max transactions to fetch for profile
 
 // ---------------------------------------------------------------------------
