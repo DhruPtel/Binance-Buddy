@@ -18,6 +18,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@binancebuddy/blockchain": "workspace:*",
-    "@binancebuddy/core": "workspace:*"
+    "@binancebuddy/core": "workspace:*",
+    "ethers": "6"
   }
 }

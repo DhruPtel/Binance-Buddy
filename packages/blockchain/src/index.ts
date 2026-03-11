@@ -28,3 +28,16 @@ export {
 } from './scanner.js';
 
 export { rateLimiter } from './rate-limiter.js';
+
+export {
+  getSwapQuote,
+  findBestPath,
+  checkApproval,
+  executeApproval,
+  getGasPrice,
+  estimateGasCost,
+  simulateTransaction,
+  prepareSwap,
+  executeSwap,
+} from './dex/index.js';
+export type { GasEstimate } from './dex/index.js';

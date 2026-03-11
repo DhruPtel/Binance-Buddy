@@ -1,17 +1,31 @@
 // =============================================================================
-// swap_tokens — builds a swap quote and returns it for user confirmation
-// Real execution wired in Day 4 (DEX trading engine).
+// swap_tokens — real PancakeSwap V2 quote via prepareSwap()
+// Returns quote + guardrail result for user confirmation.
+// Does NOT execute — execution requires explicit user confirm.
 // =============================================================================
 
+import { parseUnits } from 'ethers';
 import type { AgentTool, AgentContext } from '@binancebuddy/core';
-import { SAFE_TOKENS, BNB_FEE_RESERVE, MAX_SLIPPAGE_NORMAL_BPS, MAX_SLIPPAGE_TRENCHES_BPS } from '@binancebuddy/core';
+import {
+  SAFE_TOKENS,
+  NATIVE_BNB_ADDRESS,
+  WBNB_ADDRESS,
+  BNB_FEE_RESERVE,
+  MAX_SLIPPAGE_NORMAL_BPS,
+  MAX_SLIPPAGE_TRENCHES_BPS,
+} from '@binancebuddy/core';
+import { createProvider, prepareSwap } from '@binancebuddy/blockchain';
+
+// All BSC tokens (including SAFE_TOKENS) use 18 decimals
+const TOKEN_DECIMALS = 18;
 
 export const swapTokensTool: AgentTool = {
   name: 'swap_tokens',
   description:
-    'Build a swap quote between two tokens on PancakeSwap. Returns the quote details ' +
-    'for user confirmation — does NOT execute automatically. ' +
-    'Always show the quote to the user and wait for explicit confirm before calling execute.',
+    'Get a real PancakeSwap V2 quote for swapping one token to another. ' +
+    'Returns the quote and guardrail check result for user confirmation — ' +
+    'does NOT execute automatically. Always show the quote and wait for explicit ' +
+    'user confirmation before proceeding with execution.',
   parameters: {
     type: 'object',
     properties: {
@@ -35,35 +49,40 @@ export const swapTokensTool: AgentTool = {
     required: ['tokenIn', 'tokenOut', 'amountIn'],
   },
   handler: async (params: Record<string, unknown>, context: AgentContext) => {
-    const tokenIn = String(params.tokenIn ?? '');
-    const tokenOut = String(params.tokenOut ?? '');
-    const amountIn = String(params.amountIn ?? '0');
+    const tokenInRaw = String(params.tokenIn ?? '');
+    const tokenOutRaw = String(params.tokenOut ?? '');
+    const amountInDecimal = String(params.amountIn ?? '0');
     const maxSlippage = context.mode === 'trenches'
       ? MAX_SLIPPAGE_TRENCHES_BPS
       : MAX_SLIPPAGE_NORMAL_BPS;
-    const slippageBps = Math.min(
-      Number(params.slippageBps ?? 100),
-      maxSlippage,
-    );
+    const slippageBps = Math.min(Number(params.slippageBps ?? 100), maxSlippage);
 
-    // Resolve symbol → address
+    // Resolve symbol → address (BNB special-cased to WBNB for router, native for value)
     const resolveAddress = (symbolOrAddr: string): string | null => {
       if (symbolOrAddr.startsWith('0x')) return symbolOrAddr;
       const upper = symbolOrAddr.toUpperCase();
+      if (upper === 'BNB') return NATIVE_BNB_ADDRESS;
       return SAFE_TOKENS[upper] ?? null;
     };
 
-    const inAddr = resolveAddress(tokenIn);
-    const outAddr = resolveAddress(tokenOut);
+    const inAddr = resolveAddress(tokenInRaw);
+    const outAddr = resolveAddress(tokenOutRaw);
 
-    if (!inAddr) return { error: `Unknown token: ${tokenIn}. Use a contract address or a known symbol.` };
-    if (!outAddr) return { error: `Unknown token: ${tokenOut}. Use a contract address or a known symbol.` };
+    if (!inAddr) {
+      return { error: `Unknown token: ${tokenInRaw}. Use a contract address or a known symbol (BNB, WBNB, CAKE, USDT, USDC, BUSD, ETH, BTCB).` };
+    }
+    if (!outAddr) {
+      return { error: `Unknown token: ${tokenOutRaw}. Use a contract address or a known symbol.` };
+    }
 
-    const amount = parseFloat(amountIn);
-    if (isNaN(amount) || amount <= 0) return { error: 'amountIn must be a positive number.' };
+    const amount = parseFloat(amountInDecimal);
+    if (isNaN(amount) || amount <= 0) {
+      return { error: 'amountIn must be a positive number.' };
+    }
 
-    // Guardrail: fee reserve check (for BNB sells)
-    if (tokenIn.toUpperCase() === 'BNB' || tokenIn.toUpperCase() === 'WBNB') {
+    // Guardrail: fee reserve check for BNB sells
+    const isBnbIn = tokenInRaw.toUpperCase() === 'BNB' || tokenInRaw.toUpperCase() === 'WBNB';
+    if (isBnbIn) {
       const available = context.walletState.bnbBalanceFormatted - BNB_FEE_RESERVE;
       if (amount > available) {
         return {
@@ -72,19 +91,70 @@ export const swapTokensTool: AgentTool = {
       }
     }
 
-    // Stub: real quote will come from PancakeSwap in Day 4
-    return {
-      status: 'quote_ready',
-      tokenIn: { symbol: tokenIn.toUpperCase(), address: inAddr },
-      tokenOut: { symbol: tokenOut.toUpperCase(), address: outAddr },
-      amountIn,
-      amountOut: 'pending_execution_engine', // Day 4: real quote
-      slippageBps,
-      priceImpact: null,
-      gasEstimateBnb: '0.0005',
-      note: 'Quote engine not yet connected (Day 4). This shows the validated intent.',
-      requiresConfirmation: true,
-      mode: context.mode,
-    };
+    // Convert to bigint (all BSC tokens use 18 decimals)
+    let amountInWei: bigint;
+    try {
+      amountInWei = parseUnits(amountInDecimal, TOKEN_DECIMALS);
+    } catch {
+      return { error: `Invalid amount: ${amountInDecimal}` };
+    }
+
+    // Use WBNB address for router path when input is native BNB
+    const routerTokenIn = inAddr === NATIVE_BNB_ADDRESS ? WBNB_ADDRESS : inAddr;
+    const routerTokenOut = outAddr === NATIVE_BNB_ADDRESS ? WBNB_ADDRESS : outAddr;
+
+    const bnbPriceUsd = context.researchReport?.marketOverview.bnbPriceUsd ?? 600;
+
+    try {
+      const provider = createProvider();
+
+      const result = await prepareSwap(
+        provider,
+        {
+          tokenIn: routerTokenIn,
+          tokenOut: routerTokenOut,
+          amountIn: amountInWei.toString(),
+          slippageBps,
+          recipient: context.walletState.address,
+        },
+        BigInt(context.walletState.bnbBalance),
+        context.guardrailConfig,
+        bnbPriceUsd,
+      );
+
+      if ('error' in result) {
+        return { error: result.error };
+      }
+
+      const { quote, guardrail } = result;
+
+      // Format amounts for display (assume 18 decimals)
+      const amountOutFormatted = (Number(BigInt(quote.amountOut)) / 1e18).toFixed(6);
+      const amountOutMinFormatted = (Number(BigInt(quote.amountOutMin)) / 1e18).toFixed(6);
+
+      return {
+        status: guardrail.passed ? 'quote_ready' : 'guardrail_blocked',
+        tokenIn: { symbol: tokenInRaw.toUpperCase(), address: inAddr },
+        tokenOut: { symbol: tokenOutRaw.toUpperCase(), address: outAddr },
+        amountIn: amountInDecimal,
+        amountOut: amountOutFormatted,
+        amountOutMin: amountOutMinFormatted,
+        slippageBps,
+        priceImpact: quote.priceImpact,
+        path: quote.path,
+        gasCostBnb: quote.gasCostBnb,
+        gasCostUsd: quote.gasCostUsd.toFixed(2),
+        guardrail: {
+          passed: guardrail.passed,
+          failureReason: guardrail.failureReason,
+          checks: guardrail.checks,
+        },
+        requiresConfirmation: guardrail.passed,
+        mode: context.mode,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { error: `Quote failed: ${msg.slice(0, 200)}` };
+    }
   },
 };
