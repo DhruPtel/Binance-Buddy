@@ -92,6 +92,21 @@ The agent reads this at session start and never makes the same mistake twice.
   `@binancebuddy/`, OpenClaw agent is `binancebuddy`. DEVELOPMENT_PLAN.md is legacy —
   OPENCLAW.md is authoritative.
 
+### API / Data Sources
+
+- **BSCScan V1 is dead** — `api.bscscan.com/api` returns "deprecated V1 endpoint" for ALL keys,
+  even with a valid BSCScan key. BSCScan V2 (`api.bscscan.com/v2/api`) returns 404 — it doesn't exist.
+- **Etherscan V2 for BSC requires a paid plan** — `api.etherscan.io/v2/api?chainid=56` returns
+  "Free API access is not supported for this chain" on the free tier. BSC is not covered for free.
+- **Ankr Enhanced API is the correct replacement** — covers BSC, free with sign-up (200M credits/month).
+  - Token balances + prices in one call: `ankr_getAccountBalance` (`blockchain: ["bsc"]`)
+  - Transaction history: `ankr_getTransactionsByAddress` (`blockchain: ["bsc"]`)
+  - Endpoint: `POST https://rpc.ankr.com/multichain/{apiKey}` (key required even for free tier — keyless returns 403)
+  - Ankr API key env var: `ANKR_API_KEY` (NOT BSCSCAN_API_KEY)
+- Ankr returns balances + prices in a single call — no secondary CoinGecko calls needed for token scans.
+- Ankr tx fields differ from BSCScan: `timestamp` (number, not string `timeStamp`),
+  `blockNumber` (number), `status` (1/0, not `isError` "0"/"1").
+
 ### Type Design
 - XP_THRESHOLDS as a `Record<EvolutionStage, number>` const in types.ts works cleanly
   with the stage union type — no need for a separate enum.

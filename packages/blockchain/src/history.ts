@@ -1,33 +1,42 @@
 // =============================================================================
 // @binancebuddy/blockchain — Transaction History
-// Fetches and categorizes BSC transactions via BSCScan API.
+// Fetches and categorizes BSC transactions via Ankr Enhanced API.
 // =============================================================================
 
 import type { ParsedTransaction, TxCategory } from '@binancebuddy/core';
 import {
-  BSCSCAN_API_URL,
-  BSCSCAN_TX_LIMIT,
+  ANKR_MULTICHAIN_URL,
+  ANKR_TX_LIMIT,
   ADDRESS_TO_PROTOCOL,
   KNOWN_PROTOCOLS,
 } from '@binancebuddy/core';
 
 // ---------------------------------------------------------------------------
-// BSCScan raw transaction type
+// Ankr raw transaction type
 // ---------------------------------------------------------------------------
 
-interface BscScanTx {
+interface AnkrTx {
   hash: string;
-  timeStamp: string;
-  blockNumber: string;
+  timestamp: number;        // unix seconds (number, not string)
+  blockNumber: number;      // number, not string
   from: string;
   to: string;
   value: string;
-  gasUsed: string;
+  gas: string;
   gasPrice: string;
-  isError: string;
+  gasUsed: string;
+  status: number;           // 1 = success, 0 = failed
   input: string;
-  functionName: string;
-  contractAddress: string;
+}
+
+interface AnkrTxResponse {
+  jsonrpc: string;
+  id: number;
+  result?: {
+    transactions: AnkrTx[];
+    nextPageToken?: string;
+  };
+  error?: { code: number; message: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -35,17 +44,17 @@ interface BscScanTx {
 // ---------------------------------------------------------------------------
 
 const SELECTORS: Record<string, TxCategory> = {
-  '0x38ed1739': 'swap',     // swapExactTokensForTokens
-  '0x8803dbee': 'swap',     // swapTokensForExactTokens
-  '0x7ff36ab5': 'swap',     // swapExactETHForTokens
-  '0x18cbafe5': 'swap',     // swapExactTokensForETH
-  '0xfb3bdb41': 'swap',     // swapETHForExactTokens
-  '0x5c11d795': 'swap',     // swapExactTokensForTokensSupportingFeeOnTransferTokens
-  '0xb6f9de95': 'swap',     // swapExactETHForTokensSupportingFeeOnTransferTokens
-  '0x791ac947': 'swap',     // swapExactTokensForETHSupportingFeeOnTransferTokens
-  '0x04e45aaf': 'swap',     // exactInputSingle (V3)
-  '0xb858183f': 'swap',     // exactInput (V3)
-  '0x095ea7b3': 'approve',  // approve
+  '0x38ed1739': 'swap',       // swapExactTokensForTokens
+  '0x8803dbee': 'swap',       // swapTokensForExactTokens
+  '0x7ff36ab5': 'swap',       // swapExactETHForTokens
+  '0x18cbafe5': 'swap',       // swapExactTokensForETH
+  '0xfb3bdb41': 'swap',       // swapETHForExactTokens
+  '0x5c11d795': 'swap',       // swapExactTokensForTokensSupportingFeeOnTransferTokens
+  '0xb6f9de95': 'swap',       // swapExactETHForTokensSupportingFeeOnTransferTokens
+  '0x791ac947': 'swap',       // swapExactTokensForETHSupportingFeeOnTransferTokens
+  '0x04e45aaf': 'swap',       // exactInputSingle (V3)
+  '0xb858183f': 'swap',       // exactInput (V3)
+  '0x095ea7b3': 'approve',    // approve
   '0xe8e33700': 'farm_enter', // addLiquidity
   '0xf305d719': 'farm_enter', // addLiquidityETH
   '0xbaa2abde': 'farm_exit',  // removeLiquidity
@@ -60,20 +69,18 @@ const SELECTORS: Record<string, TxCategory> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Categorize a single transaction based on its function selector,
- * target address, and known protocol mappings.
+ * Categorize a single transaction based on its function selector
+ * and known protocol mappings. Accepts any object with input and to fields.
  */
-export function categorizeTx(tx: BscScanTx): TxCategory {
+export function categorizeTx(tx: { input: string; to: string }): TxCategory {
   const input = tx.input ?? '';
   const selector = input.slice(0, 10).toLowerCase();
 
-  // Check function selector first
   if (selector && SELECTORS[selector]) {
     return SELECTORS[selector];
   }
 
-  // Check by known protocol category
-  const toAddr = tx.to.toLowerCase();
+  const toAddr = tx.to?.toLowerCase() ?? '';
   const protocol = ADDRESS_TO_PROTOCOL[toAddr];
   if (protocol) {
     for (const [, proto] of Object.entries(KNOWN_PROTOCOLS)) {
@@ -85,12 +92,10 @@ export function categorizeTx(tx: BscScanTx): TxCategory {
     }
   }
 
-  // Plain BNB transfer (no input data)
   if (input === '0x' || input === '') {
     return 'transfer';
   }
 
-  // Approve is very common
   if (selector === '0x095ea7b3') {
     return 'approve';
   }
@@ -101,8 +106,8 @@ export function categorizeTx(tx: BscScanTx): TxCategory {
 /**
  * Identify the protocol name for a transaction based on the target address.
  */
-export function identifyProtocol(tx: BscScanTx): string | undefined {
-  return ADDRESS_TO_PROTOCOL[tx.to.toLowerCase()];
+export function identifyProtocol(tx: { to: string }): string | undefined {
+  return ADDRESS_TO_PROTOCOL[tx.to?.toLowerCase() ?? ''];
 }
 
 // ---------------------------------------------------------------------------
@@ -110,51 +115,60 @@ export function identifyProtocol(tx: BscScanTx): string | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch transaction history from BSCScan and return parsed, categorized transactions.
+ * Fetch transaction history from Ankr and return parsed, categorized transactions.
  */
 export async function fetchTransactionHistory(
   walletAddress: string,
-  apiKey: string,
-  limit: number = BSCSCAN_TX_LIMIT,
+  ankrApiKey?: string,
+  limit: number = ANKR_TX_LIMIT,
 ): Promise<ParsedTransaction[]> {
-  const url = new URL(BSCSCAN_API_URL);
-  url.searchParams.set('module', 'account');
-  url.searchParams.set('action', 'txlist');
-  url.searchParams.set('address', walletAddress);
-  url.searchParams.set('startblock', '0');
-  url.searchParams.set('endblock', '99999999');
-  url.searchParams.set('page', '1');
-  url.searchParams.set('offset', String(limit));
-  url.searchParams.set('sort', 'desc');
-  url.searchParams.set('apikey', apiKey);
+  const endpoint = ankrApiKey
+    ? `${ANKR_MULTICHAIN_URL}/${ankrApiKey}`
+    : ANKR_MULTICHAIN_URL;
 
-  const res = await fetch(url.toString());
-  const json = (await res.json()) as {
-    status: string;
-    result: BscScanTx[] | string;
+  const body = {
+    jsonrpc: '2.0',
+    method: 'ankr_getTransactionsByAddress',
+    params: {
+      walletAddress,
+      blockchain: ['bsc'],
+      pageSize: limit,
+    },
+    id: 1,
   };
 
-  if (json.status !== '1' || !Array.isArray(json.result)) {
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json()) as AnkrTxResponse;
+
+    if (!json.result?.transactions) {
+      return [];
+    }
+
+    return json.result.transactions.map(parseTx);
+  } catch {
     return [];
   }
-
-  return json.result.map(parseTx);
 }
 
 /**
- * Parse a raw BSCScan transaction into our ParsedTransaction type.
+ * Parse a raw Ankr transaction into our ParsedTransaction type.
  */
-function parseTx(tx: BscScanTx): ParsedTransaction {
+function parseTx(tx: AnkrTx): ParsedTransaction {
   return {
     hash: tx.hash,
-    timestamp: parseInt(tx.timeStamp, 10),
-    blockNumber: parseInt(tx.blockNumber, 10),
+    timestamp: tx.timestamp,          // already a number
+    blockNumber: tx.blockNumber,      // already a number
     from: tx.from,
     to: tx.to,
     value: tx.value,
     gasUsed: tx.gasUsed,
     gasPrice: tx.gasPrice,
-    status: tx.isError === '0' ? 'success' : 'failed',
+    status: tx.status === 1 ? 'success' : 'failed',
     category: categorizeTx(tx),
     protocol: identifyProtocol(tx),
   };

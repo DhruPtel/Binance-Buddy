@@ -8,7 +8,6 @@ export {
 } from './provider.js';
 
 export {
-  discoverTokens,
   getTokenBalance,
   getTokenPrices,
   getBnbPriceUsd,

@@ -37,12 +37,12 @@ import {
 export async function scanWallet(
   provider: JsonRpcProvider | FallbackProvider,
   walletAddress: string,
-  bscscanApiKey: string,
+  ankrApiKey?: string,
   coingeckoApiKey?: string,
 ): Promise<WalletState> {
   const [bnbBalanceRaw, tokens, bnbPrice] = await Promise.all([
     getBnbBalance(provider, walletAddress),
-    scanTokens(provider, walletAddress, bscscanApiKey, coingeckoApiKey),
+    scanTokens(provider, walletAddress, ankrApiKey),
     getBnbPriceUsd(coingeckoApiKey),
   ]);
 
@@ -71,9 +71,9 @@ export async function scanWallet(
 export async function buildProfile(
   walletAddress: string,
   tokens: TokenInfo[],
-  bscscanApiKey: string,
+  ankrApiKey?: string,
 ): Promise<UserProfile> {
-  const txs = await fetchTransactionHistory(walletAddress, bscscanApiKey);
+  const txs = await fetchTransactionHistory(walletAddress, ankrApiKey);
   const categoryCounts = countByCategory(txs);
   const protocolUsage = getProtocolUsage(txs);
 

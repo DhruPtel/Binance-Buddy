@@ -3,7 +3,7 @@ import 'dotenv/config';
 // @binancebuddy/server — Dev Dashboard & API
 // =============================================================================
 
-import express from 'express';
+import express, { type Express } from 'express';
 import cors from 'cors';
 import { execSync } from 'child_process';
 import {
@@ -15,12 +15,12 @@ import {
 } from '@binancebuddy/blockchain';
 import { safeStringify } from '@binancebuddy/core';
 
-const app = express();
+const app: Express = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT ?? 3000;
-const BSCSCAN_API_KEY = process.env.BSCSCAN_API_KEY ?? '';
+const ANKR_API_KEY = process.env.ANKR_API_KEY ?? '';
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY ?? '';
 
 // Reusable provider
@@ -42,23 +42,29 @@ app.get('/api/health', async (_req, res) => {
     results.provider = { status: 'error', detail: String(e) };
   }
 
-  // BSCScan / Etherscan V2
-  if (BSCSCAN_API_KEY) {
-    try {
-      const r = await fetch(`https://api.etherscan.io/v2/api?chainid=56&module=account&action=balance&address=0x10ED43C718714eb63d5aA57B78B54704E256024E&apikey=${BSCSCAN_API_KEY}`);
-      const j = (await r.json()) as { status: string; message: string; result: string };
-      if (j.status === '1') {
-        results.bscscan = { status: 'ok', detail: 'Etherscan V2 API working' };
-      } else if (j.result?.includes('Free API access is not supported')) {
-        results.bscscan = { status: 'warning', detail: 'Key set — BSC requires paid Etherscan V2 plan' };
-      } else {
-        results.bscscan = { status: 'error', detail: j.result || j.message };
-      }
-    } catch (e) {
-      results.bscscan = { status: 'error', detail: String(e) };
+  // Ankr Enhanced API
+  try {
+    const ankrUrl = ANKR_API_KEY
+      ? `https://rpc.ankr.com/multichain/${ANKR_API_KEY}`
+      : 'https://rpc.ankr.com/multichain';
+    const r = await fetch(ankrUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'ankr_getAccountBalance',
+        params: { walletAddress: '0x10ED43C718714eb63d5aA57B78B54704E256024E', blockchain: ['bsc'] },
+        id: 1,
+      }),
+    });
+    const j = (await r.json()) as { result?: unknown; error?: { message: string } };
+    if (j.result) {
+      results.ankr = { status: 'ok', detail: ANKR_API_KEY ? 'Ankr Enhanced API working' : 'Ankr working (no key — rate limited)' };
+    } else {
+      results.ankr = { status: 'error', detail: j.error?.message ?? 'Unknown error' };
     }
-  } else {
-    results.bscscan = { status: 'warning', detail: 'No API key set (BSCSCAN_API_KEY)' };
+  } catch (e) {
+    results.ankr = { status: 'error', detail: String(e) };
   }
 
   // CoinGecko
@@ -79,19 +85,9 @@ app.get('/api/health', async (_req, res) => {
 app.post('/api/scan/:address', async (req, res) => {
   const { address } = req.params;
 
-  if (!BSCSCAN_API_KEY) {
-    res.status(400).json({ error: 'BSCSCAN_API_KEY not configured. Set it in .env' });
-    return;
-  }
-
   try {
-    const [walletState, profile] = await Promise.all([
-      scanWallet(provider, address, BSCSCAN_API_KEY, COINGECKO_API_KEY || undefined),
-      buildProfile(address, [], BSCSCAN_API_KEY),
-    ]);
-
-    // Re-run profile with actual tokens from wallet scan
-    const fullProfile = await buildProfile(address, walletState.tokens, BSCSCAN_API_KEY);
+    const walletState = await scanWallet(provider, address, ANKR_API_KEY || undefined, COINGECKO_API_KEY || undefined);
+    const fullProfile = await buildProfile(address, walletState.tokens, ANKR_API_KEY || undefined);
 
     res.type('application/json').send(safeStringify({ walletState, profile: fullProfile }));
   } catch (e) {
@@ -145,8 +141,8 @@ app.listen(PORT, () => {
   console.log(`    GET  /api/health`);
   console.log(`    POST /api/scan/:address`);
   console.log(`    GET  /api/tests\n`);
-  if (!BSCSCAN_API_KEY) {
-    console.log(`  ⚠  BSCSCAN_API_KEY not set — wallet scan will be limited`);
+  if (!ANKR_API_KEY) {
+    console.log(`  ⚠  ANKR_API_KEY not set — requests will be rate-limited (get free key at ankr.com)`);
   }
 });
 
@@ -263,7 +259,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     <h2>System Health</h2>
     <div id="health-statuses">
       <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Provider</span><span class="status-detail">Not checked</span></div>
-      <div class="status-row"><span class="status-dot pending"></span><span class="status-label">BSCScan</span><span class="status-detail">Not checked</span></div>
+      <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Ankr</span><span class="status-detail">Not checked</span></div>
       <div class="status-row"><span class="status-dot pending"></span><span class="status-label">CoinGecko</span><span class="status-detail">Not checked</span></div>
     </div>
     <div style="margin-top: 16px;">

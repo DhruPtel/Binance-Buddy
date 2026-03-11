@@ -1,15 +1,16 @@
 // =============================================================================
 // @binancebuddy/blockchain — Token Scanner
-// Fetches BEP-20 balances via BSCScan API, prices via CoinGecko.
+// Fetches BEP-20 balances via Ankr Enhanced API.
+// Prices included in Ankr response — no separate CoinGecko call needed for scan.
+// CoinGecko helpers kept for BNB price and standalone price lookups.
 // =============================================================================
 
 import { Contract, formatUnits } from 'ethers';
 import type { JsonRpcProvider, FallbackProvider } from 'ethers';
 import type { TokenInfo } from '@binancebuddy/core';
 import {
-  BSCSCAN_API_URL,
+  ANKR_MULTICHAIN_URL,
   COINGECKO_API_URL,
-  WBNB_ADDRESS,
   TOKEN_SYMBOL_MAP,
 } from '@binancebuddy/core';
 
@@ -22,61 +23,37 @@ const ERC20_ABI = [
 ];
 
 // ---------------------------------------------------------------------------
-// BSCScan: discover which tokens a wallet holds
+// Ankr response types
 // ---------------------------------------------------------------------------
 
-interface BscScanTokenTx {
+interface AnkrAsset {
+  balance: string;            // human-readable (e.g. "1.23")
+  balanceRawInteger: string;  // wei / smallest unit
+  balanceUsd: string;
+  blockchain: string;
   contractAddress: string;
-  tokenSymbol: string;
+  holderAddress: string;
+  tokenDecimals: number;
   tokenName: string;
-  tokenDecimal: string;
+  tokenPrice: string;
+  tokenSymbol: string;
+  tokenType: string;
+  thumbnail?: string;
 }
 
-/**
- * Fetch the list of unique token contract addresses a wallet has interacted with.
- * Uses BSCScan's tokentx endpoint to discover held tokens.
- */
-export async function discoverTokens(
-  walletAddress: string,
-  apiKey: string,
-): Promise<BscScanTokenTx[]> {
-  const url = new URL(BSCSCAN_API_URL);
-  url.searchParams.set('module', 'account');
-  url.searchParams.set('action', 'tokentx');
-  url.searchParams.set('address', walletAddress);
-  url.searchParams.set('startblock', '0');
-  url.searchParams.set('endblock', '99999999');
-  url.searchParams.set('page', '1');
-  url.searchParams.set('offset', '1000');
-  url.searchParams.set('sort', 'desc');
-  url.searchParams.set('apikey', apiKey);
-
-  const res = await fetch(url.toString());
-  const json = (await res.json()) as {
-    status: string;
-    result: BscScanTokenTx[] | string;
+interface AnkrBalanceResponse {
+  jsonrpc: string;
+  id: number;
+  result?: {
+    assets: AnkrAsset[];
+    totalBalanceUsd: string;
+    nextPageToken?: string;
   };
-
-  if (json.status !== '1' || !Array.isArray(json.result)) {
-    return [];
-  }
-
-  // Deduplicate by contract address
-  const seen = new Set<string>();
-  const unique: BscScanTokenTx[] = [];
-  for (const tx of json.result) {
-    const addr = tx.contractAddress.toLowerCase();
-    if (!seen.has(addr)) {
-      seen.add(addr);
-      unique.push(tx);
-    }
-  }
-
-  return unique;
+  error?: { code: number; message: string };
 }
 
 // ---------------------------------------------------------------------------
-// On-chain: read actual balances
+// On-chain: read actual balance for a single token (used by tests & one-offs)
 // ---------------------------------------------------------------------------
 
 /**
@@ -108,13 +85,12 @@ export async function getTokenBalance(
 }
 
 // ---------------------------------------------------------------------------
-// CoinGecko: price lookup
+// CoinGecko: standalone price lookups (kept for individual token queries)
 // ---------------------------------------------------------------------------
 
 /**
  * Fetch USD prices for a list of token contract addresses on BSC.
  * Returns a map of lowercase address → price in USD.
- * Uses CoinGecko's free /simple/token_price endpoint.
  */
 export async function getTokenPrices(
   contractAddresses: string[],
@@ -122,7 +98,6 @@ export async function getTokenPrices(
 ): Promise<Record<string, number>> {
   if (contractAddresses.length === 0) return {};
 
-  // CoinGecko limits to ~100 addresses per call
   const batchSize = 100;
   const prices: Record<string, number> = {};
 
@@ -174,79 +149,70 @@ export async function getBnbPriceUsd(apiKey?: string): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
-// Orchestrator: full token scan
+// Ankr: full token scan via ankr_getAccountBalance
 // ---------------------------------------------------------------------------
 
 /**
- * Scan a wallet for all BEP-20 tokens with balances and USD values.
+ * Scan a wallet for all BEP-20 tokens with balances and USD values via Ankr.
  *
- * Flow:
- * 1. Discover tokens via BSCScan tokentx
- * 2. Read on-chain balances (filters out zero balances)
- * 3. Fetch USD prices from CoinGecko
- * 4. Return TokenInfo[] sorted by value descending
+ * Ankr returns balances + prices in a single call — no secondary on-chain
+ * reads or CoinGecko calls required. Returns TokenInfo[] sorted by value desc.
  */
 export async function scanTokens(
-  provider: JsonRpcProvider | FallbackProvider,
+  _provider: JsonRpcProvider | FallbackProvider,
   walletAddress: string,
-  bscscanApiKey: string,
-  coingeckoApiKey?: string,
+  ankrApiKey?: string,
 ): Promise<TokenInfo[]> {
-  // 1. Discover token contracts
-  const discovered = await discoverTokens(walletAddress, bscscanApiKey);
+  const endpoint = ankrApiKey
+    ? `${ANKR_MULTICHAIN_URL}/${ankrApiKey}`
+    : ANKR_MULTICHAIN_URL;
 
-  // 2. Read on-chain balances in parallel (batches of 10 to avoid rate limits)
-  const batchSize = 10;
-  const tokenData: {
-    address: string;
-    balance: bigint;
-    decimals: number;
-    symbol: string;
-    name: string;
-  }[] = [];
+  const body = {
+    jsonrpc: '2.0',
+    method: 'ankr_getAccountBalance',
+    params: {
+      walletAddress,
+      blockchain: ['bsc'],
+      onlyWhitelisted: false,
+    },
+    id: 1,
+  };
 
-  for (let i = 0; i < discovered.length; i += batchSize) {
-    const batch = discovered.slice(i, i + batchSize);
-    const results = await Promise.all(
-      batch.map((t) => getTokenBalance(provider, t.contractAddress, walletAddress)),
-    );
-    for (let j = 0; j < results.length; j++) {
-      const result = results[j];
-      if (result && result.balance > 0n) {
-        tokenData.push({
-          address: batch[j].contractAddress,
-          ...result,
-        });
-      }
-    }
+  let assets: AnkrAsset[] = [];
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json()) as AnkrBalanceResponse;
+    assets = json.result?.assets ?? [];
+  } catch {
+    return [];
   }
 
-  // 3. Fetch prices
-  const addresses = tokenData.map((t) => t.address);
-  const prices = await getTokenPrices(addresses, coingeckoApiKey);
+  const tokens: TokenInfo[] = assets
+    .filter((a) => a.tokenType === 'ERC20' || a.tokenType === 'BEP20')
+    .map((a): TokenInfo => {
+      const addrLower = a.contractAddress.toLowerCase();
+      const balanceFormatted = parseFloat(a.balance) || 0;
+      const priceUsd = parseFloat(a.tokenPrice) || 0;
+      const valueUsd = parseFloat(a.balanceUsd) || 0;
 
-  // 4. Build TokenInfo[]
-  const tokens: TokenInfo[] = tokenData.map((t) => {
-    const addrLower = t.address.toLowerCase();
-    const balanceFormatted = parseFloat(formatUnits(t.balance, t.decimals));
-    const priceUsd = prices[addrLower] ?? 0;
-    const valueUsd = balanceFormatted * priceUsd;
+      return {
+        address: a.contractAddress,
+        symbol: TOKEN_SYMBOL_MAP[addrLower] ?? a.tokenSymbol,
+        name: a.tokenName,
+        decimals: a.tokenDecimals,
+        balance: a.balanceRawInteger,
+        balanceFormatted,
+        priceUsd,
+        valueUsd,
+        logoUrl: a.thumbnail,
+      };
+    })
+    .filter((t) => t.balanceFormatted > 0);
 
-    return {
-      address: t.address,
-      symbol: TOKEN_SYMBOL_MAP[addrLower] ?? t.symbol,
-      name: t.name,
-      decimals: t.decimals,
-      balance: t.balance.toString(),
-      balanceFormatted,
-      priceUsd,
-      valueUsd,
-      logoUrl: undefined,
-    };
-  });
-
-  // Sort by USD value descending
   tokens.sort((a, b) => b.valueUsd - a.valueUsd);
-
   return tokens;
 }

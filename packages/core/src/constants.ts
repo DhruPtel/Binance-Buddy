@@ -174,12 +174,12 @@ export const XP_REWARDS: Record<string, number> = {
 };
 
 // ---------------------------------------------------------------------------
-// BSCScan
+// Ankr Enhanced API (replaces BSCScan — free tier requires sign-up at ankr.com)
 // ---------------------------------------------------------------------------
 
-// Etherscan V2 unified API with chainid for BSC
-export const BSCSCAN_API_URL = 'https://api.etherscan.io/v2/api?chainid=56';
-export const BSCSCAN_TX_LIMIT = 500; // max transactions to fetch for profile
+// JSON-RPC multichain endpoint. Append /{apiKey} when a key is available.
+export const ANKR_MULTICHAIN_URL = 'https://rpc.ankr.com/multichain';
+export const ANKR_TX_LIMIT = 50; // Ankr pageSize max per request
 
 // ---------------------------------------------------------------------------
 // CoinGecko (free tier)
