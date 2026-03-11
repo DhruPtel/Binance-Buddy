@@ -15,6 +15,19 @@ import {
   rateLimiter,
 } from '@binancebuddy/blockchain';
 import { safeStringify, MULTICALL3_ADDRESS } from '@binancebuddy/core';
+import {
+  startResearchLoop,
+  getLatestReport,
+  runResearch,
+  getTools,
+  runAgent,
+  resetCircuitBreaker,
+  ALL_TOOLS,
+} from '@binancebuddy/ai';
+import type { AgentContext } from '@binancebuddy/core';
+import {
+  GUARDRAIL_CONFIGS,
+} from '@binancebuddy/core';
 
 const app: Express = express();
 app.use(cors());
@@ -114,6 +127,133 @@ app.post('/api/scan/:address', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// AI Agent Routes
+// ---------------------------------------------------------------------------
+
+// Tool manifest — OpenClaw discovery endpoint
+app.get('/api/tools', (_req, res) => {
+  const manifest = ALL_TOOLS.map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+    requiresTrenchesMode: t.requiresTrenchesMode ?? false,
+  }));
+  res.json({ tools: manifest, count: manifest.length });
+});
+
+// Research agent — latest report
+app.get('/api/research/latest', (_req, res) => {
+  const report = getLatestReport();
+  if (!report) {
+    res.status(204).json({ message: 'No research report yet. Research runs every 30 minutes.' });
+    return;
+  }
+  res.json(report);
+});
+
+// Force a research cycle (dev use)
+app.post('/api/research/run', async (_req, res) => {
+  try {
+    const report = await runResearch();
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Chat endpoint — single-turn agent interaction
+app.post('/api/chat', async (req, res) => {
+  const { message, walletAddress, mode, history } = req.body as {
+    message?: string;
+    walletAddress?: string;
+    mode?: 'normal' | 'trenches';
+    history?: unknown[];
+  };
+
+  if (!message) {
+    res.status(400).json({ error: 'message is required' });
+    return;
+  }
+
+  if (message.toLowerCase().trim() === 'reset') {
+    resetCircuitBreaker();
+    res.json({ reply: 'Circuit breaker reset. Ready to go again!' });
+    return;
+  }
+
+  try {
+    // Build a minimal context (full context would come from user session)
+    const address = walletAddress ?? '0x0000000000000000000000000000000000000000';
+    const tradeMode = mode ?? 'normal';
+
+    const walletState = walletAddress
+      ? await scanWallet(provider, address, COINGECKO_API_KEY || undefined)
+      : {
+          address,
+          chainId: 56,
+          bnbBalance: '0',
+          bnbBalanceFormatted: 0,
+          tokens: [],
+          totalValueUsd: 0,
+          lastScanned: Date.now(),
+        };
+
+    const userProfile = walletAddress
+      ? await buildProfile(address, walletState.tokens, MORALIS_API_KEY || undefined, ANKR_API_KEY || undefined)
+      : {
+          address,
+          archetype: 'unknown' as const,
+          riskScore: 5,
+          protocols: [],
+          preferredTokens: [],
+          avgTradeSize: 0,
+          tradingFrequency: 'rare' as const,
+          totalTxCount: 0,
+        };
+
+    const context: AgentContext = {
+      walletState,
+      userProfile,
+      buddyState: {
+        creatureType: 'creature_a',
+        stage: 'seedling',
+        xp: 0,
+        level: 1,
+        mood: 'neutral',
+        moodReason: 'just started',
+        trenchesUnlocked: tradeMode === 'trenches',
+        achievements: [],
+        lastInteraction: Date.now(),
+        totalInteractions: 0,
+        totalTradesExecuted: 0,
+        streakDays: 0,
+      },
+      researchReport: getLatestReport(),
+      recentTrades: [],
+      mode: tradeMode,
+      guardrailConfig: GUARDRAIL_CONFIGS[tradeMode],
+    };
+
+    const result = await runAgent(
+      message,
+      context,
+      Array.isArray(history) ? (history as never[]) : [],
+    );
+
+    res.json({
+      reply: result.reply,
+      success: result.success,
+      toolName: result.toolName,
+      xpAwarded: result.xpAwarded,
+      circuitBreakerTripped: result.circuitBreakerTripped,
+      history: result.updatedHistory,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Test runner
 app.get('/api/tests', (_req, res) => {
   try {
@@ -159,7 +299,12 @@ app.listen(PORT, () => {
   console.log(`  API:`);
   console.log(`    GET  /api/health`);
   console.log(`    POST /api/scan/:address`);
+  console.log(`    GET  /api/tools`);
+  console.log(`    GET  /api/research/latest`);
+  console.log(`    POST /api/chat`);
   console.log(`    GET  /api/tests\n`);
+  // Start research loop (runs every 30 minutes, first run immediate)
+  startResearchLoop();
   if (MORALIS_API_KEY) {
     console.log(`  ℹ  MORALIS_API_KEY set — tx history enabled`);
   } else if (ANKR_API_KEY) {
