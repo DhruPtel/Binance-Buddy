@@ -103,9 +103,14 @@ The agent reads this at session start and never makes the same mistake twice.
   - Transaction history: `ankr_getTransactionsByAddress` (`blockchain: ["bsc"]`)
   - Endpoint: `POST https://rpc.ankr.com/multichain/{apiKey}` (key required even for free tier — keyless returns 403)
   - Ankr API key env var: `ANKR_API_KEY` (NOT BSCSCAN_API_KEY)
-- Ankr returns balances + prices in a single call — no secondary CoinGecko calls needed for token scans.
-- Ankr tx fields differ from BSCScan: `timestamp` (number, not string `timeStamp`),
-  `blockNumber` (number), `status` (1/0, not `isError` "0"/"1").
+- **Ankr Enhanced API requires a paid plan** — even the "freemium" signup only gives a Node RPC key.
+  The `/multichain` endpoint returns -32056 "Proxy error" with a node key.
+- **Final working approach (zero paid APIs):**
+  - Token balances: Multicall3 (`0xcA11bde05977b3631167028862bE2a173976CA11`, deployed on BSC) batches
+    `balanceOf` for all SAFE_TOKENS into a single RPC call. No API key needed.
+  - Prices: CoinGecko free tier (`/simple/token_price/binance-smart-chain`).
+  - Tx history: optional. Returns `[]` if no `ANKR_API_KEY`. Archetype set to `'unknown'` in that case.
+  - `TraderArchetype` includes `'unknown'` for wallets with no tx history data.
 
 ### Type Design
 - XP_THRESHOLDS as a `Record<EvolutionStage, number>` const in types.ts works cleanly

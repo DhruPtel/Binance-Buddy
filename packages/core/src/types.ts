@@ -33,7 +33,7 @@ export interface WalletState {
 // User Profile
 // ---------------------------------------------------------------------------
 
-export type TraderArchetype = 'newcomer' | 'holder' | 'swapper' | 'farmer' | 'degen';
+export type TraderArchetype = 'newcomer' | 'holder' | 'swapper' | 'farmer' | 'degen' | 'unknown';
 export type TradingFrequency = 'rare' | 'weekly' | 'daily' | 'hyperactive';
 
 export interface ProtocolUsage {

@@ -174,12 +174,19 @@ export const XP_REWARDS: Record<string, number> = {
 };
 
 // ---------------------------------------------------------------------------
-// Ankr Enhanced API (replaces BSCScan — free tier requires sign-up at ankr.com)
+// Multicall3 (deployed on BSC mainnet at the canonical address)
+// Used for batching on-chain read calls into a single RPC request.
 // ---------------------------------------------------------------------------
 
-// JSON-RPC multichain endpoint. Append /{apiKey} when a key is available.
+export const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11';
+
+// ---------------------------------------------------------------------------
+// Ankr Enhanced API (optional — paid plan required)
+// Used only for tx history. If no key, tx history returns empty array.
+// ---------------------------------------------------------------------------
+
 export const ANKR_MULTICHAIN_URL = 'https://rpc.ankr.com/multichain';
-export const ANKR_TX_LIMIT = 50; // Ankr pageSize max per request
+export const ANKR_TX_LIMIT = 50;
 
 // ---------------------------------------------------------------------------
 // CoinGecko (free tier)

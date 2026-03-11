@@ -20,7 +20,7 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT ?? 3000;
-const ANKR_API_KEY = process.env.ANKR_API_KEY ?? '';
+const ANKR_API_KEY = process.env.ANKR_API_KEY ?? ''; // optional — paid, enables tx history
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY ?? '';
 
 // Reusable provider
@@ -42,29 +42,25 @@ app.get('/api/health', async (_req, res) => {
     results.provider = { status: 'error', detail: String(e) };
   }
 
-  // Ankr Enhanced API
+  // Multicall3 (canary call — checks the contract is reachable)
   try {
-    const ankrUrl = ANKR_API_KEY
-      ? `https://rpc.ankr.com/multichain/${ANKR_API_KEY}`
-      : 'https://rpc.ankr.com/multichain';
-    const r = await fetch(ankrUrl, {
+    const r = await fetch(process.env.BSC_RPC_URL || 'https://rpc.ankr.com/bsc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'ankr_getAccountBalance',
-        params: { walletAddress: '0x10ED43C718714eb63d5aA57B78B54704E256024E', blockchain: ['bsc'] },
+        jsonrpc: '2.0', method: 'eth_getCode',
+        params: ['0xcA11bde05977b3631167028862bE2a173976CA11', 'latest'],
         id: 1,
       }),
     });
-    const j = (await r.json()) as { result?: unknown; error?: { message: string } };
-    if (j.result) {
-      results.ankr = { status: 'ok', detail: ANKR_API_KEY ? 'Ankr Enhanced API working' : 'Ankr working (no key — rate limited)' };
-    } else {
-      results.ankr = { status: 'error', detail: j.error?.message ?? 'Unknown error' };
-    }
+    const j = (await r.json()) as { result?: string };
+    const hasCode = j.result && j.result !== '0x';
+    results.multicall3 = {
+      status: hasCode ? 'ok' : 'warning',
+      detail: hasCode ? 'Multicall3 reachable on BSC' : 'No bytecode — wrong network?',
+    };
   } catch (e) {
-    results.ankr = { status: 'error', detail: String(e) };
+    results.multicall3 = { status: 'error', detail: String(e) };
   }
 
   // CoinGecko
@@ -86,7 +82,7 @@ app.post('/api/scan/:address', async (req, res) => {
   const { address } = req.params;
 
   try {
-    const walletState = await scanWallet(provider, address, ANKR_API_KEY || undefined, COINGECKO_API_KEY || undefined);
+    const walletState = await scanWallet(provider, address, COINGECKO_API_KEY || undefined);
     const fullProfile = await buildProfile(address, walletState.tokens, ANKR_API_KEY || undefined);
 
     res.type('application/json').send(safeStringify({ walletState, profile: fullProfile }));
@@ -141,8 +137,10 @@ app.listen(PORT, () => {
   console.log(`    GET  /api/health`);
   console.log(`    POST /api/scan/:address`);
   console.log(`    GET  /api/tests\n`);
-  if (!ANKR_API_KEY) {
-    console.log(`  ⚠  ANKR_API_KEY not set — requests will be rate-limited (get free key at ankr.com)`);
+  if (ANKR_API_KEY) {
+    console.log(`  ℹ  ANKR_API_KEY set — tx history enabled`);
+  } else {
+    console.log(`  ℹ  No ANKR_API_KEY — tx history disabled (wallet scan still works via Multicall3)`);
   }
 });
 
@@ -259,7 +257,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     <h2>System Health</h2>
     <div id="health-statuses">
       <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Provider</span><span class="status-detail">Not checked</span></div>
-      <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Ankr</span><span class="status-detail">Not checked</span></div>
+      <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Multicall3</span><span class="status-detail">Not checked</span></div>
       <div class="status-row"><span class="status-dot pending"></span><span class="status-label">CoinGecko</span><span class="status-detail">Not checked</span></div>
     </div>
     <div style="margin-top: 16px;">

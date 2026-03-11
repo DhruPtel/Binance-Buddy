@@ -37,12 +37,11 @@ import {
 export async function scanWallet(
   provider: JsonRpcProvider | FallbackProvider,
   walletAddress: string,
-  ankrApiKey?: string,
   coingeckoApiKey?: string,
 ): Promise<WalletState> {
   const [bnbBalanceRaw, tokens, bnbPrice] = await Promise.all([
     getBnbBalance(provider, walletAddress),
-    scanTokens(provider, walletAddress, ankrApiKey),
+    scanTokens(provider, walletAddress, coingeckoApiKey),
     getBnbPriceUsd(coingeckoApiKey),
   ]);
 
@@ -78,7 +77,11 @@ export async function buildProfile(
   const protocolUsage = getProtocolUsage(txs);
 
   const totalTxCount = txs.length;
-  const archetype = determineArchetype(categoryCounts, tokens, totalTxCount);
+  // When tx history is unavailable (no API key), report 'unknown' rather than
+  // misclassifying a wallet as 'newcomer' based on missing data.
+  const archetype: TraderArchetype = (!ankrApiKey || totalTxCount === 0)
+    ? 'unknown'
+    : determineArchetype(categoryCounts, tokens, totalTxCount);
   const riskScore = calculateRiskScore(tokens, categoryCounts);
   const tradingFrequency = determineTradingFrequency(txs);
   const avgTradeSize = calculateAvgTradeSize(txs);

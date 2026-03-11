@@ -122,6 +122,9 @@ export async function fetchTransactionHistory(
   ankrApiKey?: string,
   limit: number = ANKR_TX_LIMIT,
 ): Promise<ParsedTransaction[]> {
+  // Tx history requires a paid Ankr key. Without one, return empty gracefully.
+  if (!ankrApiKey) return [];
+
   const endpoint = ankrApiKey
     ? `${ANKR_MULTICHAIN_URL}/${ankrApiKey}`
     : ANKR_MULTICHAIN_URL;
