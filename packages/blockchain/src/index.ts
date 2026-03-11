@@ -14,3 +14,16 @@ export {
   getBnbPriceUsd,
   scanTokens,
 } from './tokens.js';
+
+export {
+  fetchTransactionHistory,
+  categorizeTx,
+  identifyProtocol,
+  countByCategory,
+  getProtocolUsage,
+} from './history.js';
+
+export {
+  scanWallet,
+  buildProfile,
+} from './scanner.js';
