@@ -6,3 +6,11 @@ export {
   getBnbBalance,
   type Network,
 } from './provider.js';
+
+export {
+  discoverTokens,
+  getTokenBalance,
+  getTokenPrices,
+  getBnbPriceUsd,
+  scanTokens,
+} from './tokens.js';
