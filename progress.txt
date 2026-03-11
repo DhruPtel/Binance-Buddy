@@ -1,7 +1,7 @@
 # Binance Buddy — Progress
 
 ## Current State
-Day 4 COMPLETE. DEX trading engine built. Next: Day 5 — Buddy system & Extension shell.
+Day 5 COMPLETE. Buddy system + extension shell fully built. Next: Day 6 — Trenches Mode & Telegram Bot.
 
 ## API Strategy (settled)
 - Token balances: Multicall3 on-chain (zero API keys needed)
@@ -15,6 +15,21 @@ Day 4 COMPLETE. DEX trading engine built. Next: Day 5 — Buddy system & Extensi
 - Add MORALIS_API_KEY (moralis.io, free) for tx history + archetype detection
 
 ---
+
+## Day 5 Completed (Mar 11)
+- 5.1: packages/buddy/src/xp.ts — awardXp(), xpToLevel(), getXpProgress() with post-apex leveling
+- 5.1: packages/buddy/src/evolution.ts — xpToStage(), checkEvolution(), applyEvolution(), STAGE_INFO; trenches unlocks at bloom (500 XP)
+- 5.1: packages/buddy/src/mood.ts — deriveMood() driven by portfolio % change and interaction recency; MOOD_EMOJI, MOOD_COLOR
+- 5.2: packages/extension/manifest.json — MV3, popup, sidepanel, background service worker, storage/alarms/sidePanel permissions
+- 5.2: packages/extension/src/background.ts — alarm-based research cache refresh, message router (SCAN_WALLET, GET_RESEARCH, CHAT)
+- 5.3: packages/extension/src/components/BuddyRenderer.tsx — Three.js r128 voxel creature, idle animation, mood expressions, stage colour palette
+- 5.4: packages/extension/src/popup/App.tsx — 264px compact view: buddy, mood, XP bar, portfolio value, connect/chat
+- 5.5: packages/extension/src/wallet-bridge.ts — EIP-1193 connectWallet(), listenForWalletChanges(), isBscMainnet()
+- 5.5: packages/extension/src/sidepanel/App.tsx — tab nav (Chat, Portfolio, Buddy, Settings), wallet connect, BSC chain warning
+- 5.5: packages/extension/src/sidepanel/Chat.tsx — message list, typing indicator, history-aware, background relay
+- 5.5: packages/extension/src/sidepanel/Portfolio.tsx — total value, sorted token list with balances and prices
+- 5.5: vite.config.ts + tailwind.config.ts + postcss.config.js — multi-entry extension Vite build
+- 19/19 tests pass, pnpm exec tsc --noEmit clean on all packages
 
 ## Day 4 Completed (Mar 11)
 - 4.1: packages/blockchain/src/dex/pancakeswap.ts — getSwapQuote, findBestPath (direct pair + WBNB routing), getRouterContract
