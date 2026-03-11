@@ -1,2 +1,8 @@
 // @binancebuddy/blockchain — BNB Chain interactions, wallet, tx building
-export {};
+export {
+  createProvider,
+  createFallbackProvider,
+  checkProviderHealth,
+  getBnbBalance,
+  type Network,
+} from './provider.js';
