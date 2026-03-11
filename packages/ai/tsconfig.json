@@ -6,7 +6,8 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../core" }
+    { "path": "../core" },
+    { "path": "../blockchain" }
   ],
   "include": ["src"],
   "exclude": ["node_modules", "dist"]
