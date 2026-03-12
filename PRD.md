@@ -111,3 +111,41 @@ An AI companion that understands YOUR wallet, YOUR trading patterns, and YOUR ri
 - This is NOT financial advice — always disclaim
 - This is NOT a replacement for a full trading terminal
 - We do NOT store user data on a server — wallet data lives locally in the extension
+
+---
+
+## Build Status (Mar 11 — Day 7 Complete)
+
+### Features Fully Implemented
+- **F1 Wallet Scanner**: Multicall3 token balances, CoinGecko prices, Moralis tx history, archetype + risk profile ✅
+- **F2 Dual Agent**: Research agent (30min cadence), execution agent (Claude Sonnet 4.6, multi-round tool loop, circuit breaker) ✅
+- **F3 DEX Trading Engine**: PancakeSwap V2 quotes + execution, 8-step guardrail pipeline, eth_call simulation, token approvals ✅
+- **F4 Buddy Evolution**: 5 stages (Seedling→Apex), XP system, mood state machine, Three.js voxel renderer ✅
+- **F5 Trenches Mode**: Token launch sniper (PairCreated listener + safety checks), farm scanner (PancakeSwap V2 API), risk scorer ✅
+- **F7 Chrome Extension**: MV3 manifest, popup, sidepanel (Chat/Portfolio/Buddy/Settings), MetaMask/TrustWallet bridge, built to dist/ ✅
+- **F8 Telegram Bot**: /start, /status, /swap (inline buttons), /buddy, free text chat relay ✅
+- **F9 Guardrail Safety**: All 5 guardrail checks (simulation, spendingLimit, feeReserve, riskGate, protocolAllowlist), circuit breaker ✅
+
+### Gaps and Deviations
+
+#### F4 — Creature Onboarding + Animations
+- PRD: "3 base creatures to choose from at onboarding" — **NOT BUILT**. Single creature type only. No onboarding selection UI.
+- PRD: "Animations for different events: trade executed, profit, loss, level up, celebrating" — **NOT BUILT**. Only idle animation implemented.
+
+#### F5 — Trenches XP Threshold
+- PRD: "Unlocks at Guardian stage (2000 XP)" — **DEVIATION**. Unlocks at Bloom (500 XP) in all code paths (evolution.ts, server).
+- Deliberate design decision: lowers barrier for demo judges who won't grind 2000 XP.
+
+#### F5 — Auto-buy in Sniper
+- PRD: "auto-buy" as part of sniper — **NOT BUILT**. Manual confirm only. SKILL.md and sniper.ts explicitly state "auto-buy is NOT implemented."
+
+#### F6 — API-Modular Protocol Integration
+- PRD: "Agent dynamically gains new tools based on available API keys" — **NOT BUILT**.
+- Tools are static; API keys (Moralis, Ankr) only affect data fetching quality, not tool availability.
+- Settings.tsx has API key UI but keys are stored locally in extension, not wired to dynamic tool discovery.
+
+#### Non-Goal Violated — Private Key Storage
+- PRD Non-goal: "we never hold private keys" — **VIOLATED** by design.
+- Server holds an AES-256-GCM encrypted agent wallet key (.agent-keystore.json) for server-side swap execution.
+- User's wallet (MetaMask/TrustWallet) is never held — only the server's operational agent wallet.
+- Mitigation: encryption is solid (scrypt KDF), key never appears in LLM context.

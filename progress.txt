@@ -1,7 +1,21 @@
 # Binance Buddy — Progress
 
 ## Current State
-Dashboard + infrastructure COMPLETE. Agent wallet (AES-256-GCM keystore), persistent buddy state, full dashboard (7 panels), extension built. Next: Day 8 — Polish & Submit.
+All 7 build days COMPLETE. 8 packages fully built and typechecking clean.
+19/19 tests pass. Extension built to dist/. Next: Day 8 — Polish, README, demo video, submission.
+
+## Quick Module Map
+
+| Package | Status | Key Files |
+|---|---|---|
+| @binancebuddy/core | ✅ Complete | types.ts, constants.ts |
+| @binancebuddy/blockchain | ✅ Complete | provider, tokens, scanner, history, dex/*, keystore |
+| @binancebuddy/buddy | ✅ Complete | xp, evolution, mood |
+| @binancebuddy/ai | ✅ Complete | agent, research, tools/*, prompts/system |
+| @binancebuddy/strategies | ✅ Complete | trenches/sniper, trenches/farms, risk |
+| @binancebuddy/telegram | ✅ Complete | bot, commands/* |
+| @binancebuddy/extension | ✅ Built | popup, sidepanel, BuddyRenderer, wallet-bridge |
+| @binancebuddy/server | ✅ Complete | index.ts (dashboard + all endpoints) |
 
 ## API Strategy (settled)
 - Token balances: Multicall3 on-chain (zero API keys needed)
@@ -13,17 +27,24 @@ Dashboard + infrastructure COMPLETE. Agent wallet (AES-256-GCM keystore), persis
 - None — wallet scanner works with zero API keys (token balances + BNB price only)
 - Add ANTHROPIC_API_KEY (console.anthropic.com) for AI chat to function
 - Add MORALIS_API_KEY (moralis.io, free) for tx history + archetype detection
+- Add TELEGRAM_BOT_TOKEN (@BotFather) for Telegram commands
+- AGENT_WALLET_PRIVATE_KEY auto-generated on first run; fund with BNB before trading
+
+## Known Design Deviations from PRD
+- Trenches unlocks at Bloom (500 XP) not Guardian (2000 XP) — deliberate, lowers barrier for demo
+- F6 dynamic API-key-driven tools not implemented — tools are static, keys only affect data fetching
+- Server holds an agent wallet private key (encrypted AES-256-GCM) — extension still uses MetaMask for user wallet; agent wallet is operational for server-side execution only
 
 ---
 
 ## Dashboard + Infrastructure (Mar 11)
-- keystore.ts: AES-256-GCM private key encryption (scrypt KDF); getOrCreateAgentWallet (env → keystore file → generate new)
+- keystore.ts: AES-256-GCM private key encryption (scrypt KDF); getOrCreateAgentWallet (env → keystore file → generate new wallet with console output)
 - agent.ts: getCircuitBreakerStatus() — exposes failure count + tripped state
 - server endpoints: GET /api/agent-wallet, GET/POST /api/buddy, GET /api/circuit-breaker, GET /api/telegram/status, POST /api/swap/quote, POST /api/swap/execute
-- /api/chat: now returns buddyState in every response; persists XP to .buddy-state.json
+- /api/chat: returns buddyState in every response; persists XP to .buddy-state.json
 - /api/swap/execute: uses agent wallet signer, runs full guardrail pipeline, awards XP on success
-- Dashboard rewrite (7 panels): Header (agent wallet addr+bal, CB status, Telegram), Health, Buddy (stage avatar with gradient, XP bar, mood), Research (summary + full report with farms/alerts), Chat (history, tool/XP annotations, CB banner), Trade (quote → guardrails → execute → BSCScan link), Trenches (sniper activation, farm scanner), Wallet Scanner, Activity Log, Test Runner (collapsed)
-- Extension build: pnpm --filter @binancebuddy/extension build → dist/ (popup, sidepanel, background, BuddyRenderer chunk)
+- Dashboard rewrite (7 panels): Header (agent wallet addr+bal, CB status, Telegram), Health, Buddy (stage gradient avatar, XP bar, mood), Research (summary + full report with farms/alerts), Chat (history, tool/XP annotations, CB banner, Reset CB), Trade (quote → guardrails → execute → BSCScan link), Trenches (sniper activation, farm scanner), Wallet Scanner, Activity Log (200-entry ring buffer, color-coded by type), Test Runner (collapsed)
+- Extension build: pnpm --filter @binancebuddy/extension build → dist/ (popup.js 3.5kB, sidepanel.js 15.7kB, background.js 1.5kB, BuddyRenderer chunk 650kB Three.js)
 - 19/19 tests pass, all packages typecheck clean
 
 ## Day 7 Completed (Mar 11)
@@ -75,7 +96,7 @@ Dashboard + infrastructure COMPLETE. Agent wallet (AES-256-GCM keystore), persis
 - 3.2: 7 tools built — check_positions, scan_wallet, get_token_info, swap_tokens, find_farms, set_alert, snipe_launch (last requires trenchesMode)
 - 3.3: packages/ai/src/prompts/system.ts — buildSystemPrompt(context, tools): stage personalities (seedling→apex), mood modifiers, wallet summary, tool list, 7 safety rules
 - 3.4: packages/ai/src/research.ts — runResearch() fetches CoinGecko BNB price + baseline farms; startResearchLoop() runs every 30m; getLatestReport() / isReportFresh()
-- 3.5: packages/ai/src/agent.ts — runAgent(): Claude Sonnet 4.6, max_tokens 1024, multi-round tool loop (max 5), circuit breaker (3 failures → pause), XP on tool use
+- 3.5: packages/ai/src/agent.ts — runAgent(): Claude Sonnet 4.6, max_tokens 1024, multi-round tool loop (max 5), circuit breaker (3 failures → pause), XP on tool use; getCircuitBreakerStatus() + resetCircuitBreaker()
 - 3.6: server wired — GET /api/tools, POST /api/chat, GET /api/research/latest, POST /api/research/run; startResearchLoop() called on app.listen
 - 19/19 tests pass, pnpm exec tsc --noEmit clean on all packages
 

@@ -248,3 +248,50 @@ The agent reads this at session start and never makes the same mistake twice.
 - OpenClaw reads these to discover capabilities at runtime — the format must stay machine-readable.
   Use consistent section headings: `## Description`, `## Endpoint`, `## Parameters`, `## Example Request`,
   `## Example Response`, `## Notes`.
+
+---
+
+## Dashboard + Keystore (Day 7 Infrastructure — Mar 11)
+
+### AES-256-GCM Keystore Pattern
+- `encryptPrivateKey(privateKey, password)` → `{ version, address, iv, authTag, ciphertext, salt, createdAt }`.
+  ALL fields are hex strings. Store as JSON. Never store raw private key.
+- `scryptSync(password, salt, 32, { N: 16384, r: 8, p: 1 })` — these scrypt params are a reasonable
+  balance of security and server startup time. N=16384 takes ~20ms on a modern CPU.
+- `ethers.Wallet.createRandom()` returns `HDNodeWallet`, NOT `Wallet`. The two types are NOT assignable.
+  Always destructure the private key and reconstruct: `new ethers.Wallet(hdWallet.privateKey, provider)`.
+
+### awardXp Signature (buddy package)
+- `awardXp(state: BuddyState, source: XPSource)` — the XP amount is looked up from `XP_REWARDS[source]`
+  internally. Do NOT pass an amount as the third argument; there is no third argument.
+- After calling `awardXp`, the returned state has updated `xp` and `stage`. Always reassign: `buddyState = awardXp(buddyState, 'chat_interaction')`.
+
+### Extension Build: vite not tsc
+- `packages/extension/package.json` build script MUST be `vite build`, NOT `tsc -p tsconfig.json`.
+  tsc with noEmit only type-checks; it does not produce browser bundles. Vite reads vite.config.ts and
+  produces popup.js, sidepanel.js, background.js in dist/.
+- The BuddyRenderer Three.js chunk will be ~650kB — this is expected and acceptable for a dev build.
+
+### Inline Dashboard HTML in TypeScript
+- The dev dashboard is a template literal string (~1000 lines) assigned to `const DASHBOARD_HTML = \`...\``.
+- Backtick escaping rule: any literal backtick in the HTML must be escaped as `\\\``. Any `${` in JS
+  inside the template literal must be escaped as `\${` to prevent TypeScript from interpreting them as
+  interpolations. Keep all dashboard JS in a `<script>` tag with vanilla JS; no build step.
+- Serving: `res.setHeader('Content-Type', 'text/html'); res.send(DASHBOARD_HTML)` in a GET / handler.
+
+### Buddy State Persistence
+- Server holds `buddyState` in-memory, loaded from `.buddy-state.json` on startup (or defaults if missing).
+- Every XP-awarding code path must call `saveBuddyState()` which writes the JSON file synchronously
+  (or async — JSON.stringify is fast enough that sync is fine for state files this small).
+- `/api/chat` and `/api/swap/execute` are the two XP sources — both must save after awarding.
+
+### Server: implicit any in Express handlers
+- `.catch((err) =>` in route handlers needs `(err: unknown)` not `(err)` when `noImplicitAny` is on.
+- Destructure request body with explicit cast: `const { field } = req.body as { field?: string }`.
+
+### Server imports from workspace packages
+- When you add a new workspace package import to server (e.g. `@binancebuddy/telegram`), the package
+  dist/ may not exist yet. Run `pnpm exec tsc -p packages/<pkg>/tsconfig.json` (WITHOUT --noEmit) to
+  build the dist first, THEN run `--noEmit` on the server package to get clean types.
+- Never assume a workspace package dist is fresh. If you get "Output file has not been built" errors,
+  build the dependency package first.
