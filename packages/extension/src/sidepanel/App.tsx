@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Chat } from './Chat';
 import { Portfolio } from './Portfolio';
+import { Settings } from './Settings';
 import { BuddyRenderer } from '../components/BuddyRenderer';
 import { connectWallet, getConnection, listenForWalletChanges, isBscMainnet } from '../wallet-bridge';
 import { xpToStage, MOOD_EMOJI, STAGE_INFO } from '@binancebuddy/buddy';
@@ -198,30 +199,7 @@ export function App() {
           </div>
         )}
         {tab === 'settings' && (
-          <div className="p-4 space-y-4 overflow-y-auto h-full">
-            <h2 className="text-sm font-semibold text-gray-300">Settings</h2>
-            <div className="bg-gray-800 rounded-xl p-4 space-y-3">
-              <div>
-                <div className="text-xs text-gray-400 mb-1">Server URL</div>
-                <div className="text-xs text-gray-500 font-mono">http://localhost:3000</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 mb-1">Mode</div>
-                <div className="text-xs text-gray-300">
-                  {buddy.trenchesUnlocked ? '🔓 Normal / Trenches available' : '🌱 Normal only'}
-                </div>
-              </div>
-              {walletAddress && (
-                <div>
-                  <div className="text-xs text-gray-400 mb-1">Connected Wallet</div>
-                  <div className="text-xs font-mono text-gray-300 break-all">{walletAddress}</div>
-                </div>
-              )}
-            </div>
-            <div className="text-xs text-gray-600">
-              Binance Buddy v0.1.0 — your AI DeFi companion
-            </div>
-          </div>
+          <Settings buddy={buddy} walletAddress={walletAddress} />
         )}
       </div>
 
