@@ -28,6 +28,11 @@ import type { AgentContext } from '@binancebuddy/core';
 import {
   GUARDRAIL_CONFIGS,
 } from '@binancebuddy/core';
+import {
+  getWebhookHandler,
+  startPolling,
+  setWebhook,
+} from '@binancebuddy/telegram';
 
 const app: Express = express();
 app.use(cors());
@@ -254,6 +259,57 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Telegram Routes
+// ---------------------------------------------------------------------------
+
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
+const SERVER_URL = process.env.SERVER_URL ?? `http://localhost:${PORT}`;
+
+// Webhook handler — Telegram calls this for every incoming update
+// Set TELEGRAM_BOT_TOKEN and configure webhook with /api/telegram/set-webhook
+app.post('/api/telegram/webhook', (req, res) => {
+  if (!TELEGRAM_TOKEN) {
+    res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN not configured' });
+    return;
+  }
+  const handler = getWebhookHandler(TELEGRAM_TOKEN, SERVER_URL);
+  handler(req, res);
+});
+
+// Set the webhook URL with Telegram (call once after deploy)
+app.post('/api/telegram/set-webhook', async (req, res) => {
+  if (!TELEGRAM_TOKEN) {
+    res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN not configured' });
+    return;
+  }
+  const { webhookUrl } = req.body as { webhookUrl?: string };
+  const url = webhookUrl ?? `${SERVER_URL}/api/telegram/webhook`;
+  try {
+    await setWebhook(TELEGRAM_TOKEN, url);
+    res.json({ ok: true, webhookUrl: url });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Start polling (dev only — do not use alongside webhook)
+app.post('/api/telegram/start-polling', async (_req, res) => {
+  if (!TELEGRAM_TOKEN) {
+    res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN not configured' });
+    return;
+  }
+  try {
+    // Fire-and-forget: polling runs in background
+    startPolling(TELEGRAM_TOKEN, SERVER_URL).catch((err: unknown) =>
+      console.error('[Telegram] Polling error:', err),
+    );
+    res.json({ ok: true, message: 'Polling started (check server logs)' });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Test runner
 app.get('/api/tests', (_req, res) => {
   try {
@@ -302,7 +358,10 @@ app.listen(PORT, () => {
   console.log(`    GET  /api/tools`);
   console.log(`    GET  /api/research/latest`);
   console.log(`    POST /api/chat`);
-  console.log(`    GET  /api/tests\n`);
+  console.log(`    GET  /api/tests`);
+  console.log(`    POST /api/telegram/webhook`);
+  console.log(`    POST /api/telegram/set-webhook`);
+  console.log(`    POST /api/telegram/start-polling\n`);
   // Start research loop (runs every 30 minutes, first run immediate)
   startResearchLoop();
   if (MORALIS_API_KEY) {
