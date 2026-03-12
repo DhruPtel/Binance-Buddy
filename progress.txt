@@ -1,7 +1,7 @@
 # Binance Buddy — Progress
 
 ## Current State
-Day 5 COMPLETE. Buddy system + extension shell fully built. Next: Day 6 — Trenches Mode & Telegram Bot.
+Day 7 COMPLETE. Strategies (sniper + farms), Telegram bot (all commands), server webhook, SKILL.md files. Next: Day 8 — Polish & Submit.
 
 ## API Strategy (settled)
 - Token balances: Multicall3 on-chain (zero API keys needed)
@@ -15,6 +15,27 @@ Day 5 COMPLETE. Buddy system + extension shell fully built. Next: Day 6 — Tren
 - Add MORALIS_API_KEY (moralis.io, free) for tx history + archetype detection
 
 ---
+
+## Day 7 Completed (Mar 11)
+- 7.1: packages/strategies/src/trenches/sniper.ts — PairCreated event listener (PancakeSwap V2 factory), assessNewPair() safety checks (metadata, liquidity, ownership renounce, mintable bytecode), honeypot heuristic; startSniper/stopSniper with configurable min liquidity
+- 7.2: packages/strategies/src/trenches/farms.ts — live PancakeSwap V2 farms API fetch with curated baseline fallback; scoreFarms() + filterFarms() helpers
+- 7.2: packages/strategies/src/risk.ts — scoreTokenRisk() composite 0-100 heuristic (bytecode, ownership, liquidity depth, name pattern)
+- 7.3: packages/telegram/src/bot.ts — grammy Bot; createBot(), startPolling(), getWebhookHandler(), setWebhook(); auto-links wallet on plain address message; forwards free text to /api/chat
+- 7.3: packages/telegram/src/commands/start.ts — /start welcome + /link wallet linking flow
+- 7.3: packages/telegram/src/commands/status.ts — /status portfolio scan with top holdings, archetype, risk score
+- 7.3: packages/telegram/src/commands/swap.ts — /swap with inline confirm/cancel keyboard; pending swap Map keyed by userId; cross-user guard
+- 7.3: packages/telegram/src/commands/buddy.ts — /buddy stats — stage, XP progress bar, mood, streak, trenches lock state
+- 7.4: packages/server/src/index.ts — POST /api/telegram/webhook, /set-webhook, /start-polling endpoints
+- 7.5: skills/ directory — 7 SKILL.md files: swap_tokens, scan_wallet, get_token_info, check_positions, set_alert, find_farms, snipe_launch
+- 19/19 tests pass, pnpm exec tsc --noEmit clean on all packages
+
+## Day 6 Completed (Mar 11)
+- 6.1: packages/extension/src/sidepanel/App.tsx — tab nav (Chat, Portfolio, Buddy, Settings)
+- 6.2: packages/extension/src/sidepanel/Chat.tsx — message list, typing indicator, history-aware
+- 6.3: packages/extension/src/sidepanel/TradeConfirm.tsx — modal overlay, token amounts, gas, slippage, confirm/cancel, loading state
+- 6.4: packages/extension/src/sidepanel/Portfolio.tsx — total value, token list with balances/values
+- 6.5: packages/extension/src/wallet-bridge.ts — MetaMask/TrustWallet detection, account/chain change listeners
+- 6.6: packages/extension/src/sidepanel/Settings.tsx — API key management, Normal/Trenches mode toggle
 
 ## Day 5 Completed (Mar 11)
 - 5.1: packages/buddy/src/xp.ts — awardXp(), xpToLevel(), getXpProgress() with post-apex leveling

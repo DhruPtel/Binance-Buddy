@@ -205,3 +205,46 @@ The agent reads this at session start and never makes the same mistake twice.
   `feeData.maxFeePerGas` will be null on BSC.
 - 3 gwei is a safe fallback gas price on BSC mainnet. Single-hop swaps: ~150k gas.
   Multi-hop (via WBNB): ~220k gas. Approve: ~60k gas.
+
+---
+
+## Strategies + Telegram + OpenClaw (Day 7 — Mar 11)
+
+### Strategies Package
+- The `strategies` package did NOT include `ethers` in its dependencies — only `@binancebuddy/blockchain`.
+  Even though blockchain transitively uses ethers, TypeScript needs the direct dependency to resolve
+  types. Always add `"ethers": "6"` to any package that imports from `ethers` directly.
+- For sniper.ts, use `factory.on('PairCreated', handler)` with grammy-style named event listeners
+  that can be removed with `factory.off('PairCreated', handler)`. Store the handler reference in
+  closure so the stop function can deregister exactly it.
+- `getReserves()` returns `[reserve0, reserve1, blockTimestampLast]` — TypeScript types this as
+  a tuple. Destructure as `[r0, r1]: [bigint, bigint]` after calling `.then(r => [r[0], r[1]])`.
+- PancakeSwap farms API URL: `https://farms-api.pancakeswap.finance/farms/v2?chainId=56`
+  Public endpoint, no API key needed, returns `{ data: PancakePoolApiItem[] }`.
+
+### Telegram Bot (grammy)
+- `StageInfo` from `@binancebuddy/buddy` has `{ stage, label, description, xpThreshold, trenchesUnlocked }`.
+  It does NOT have an `emoji` field — use `stageInfo.label` for display.
+- grammy's `Bot` type does NOT expose `.command()` and `.callbackQuery()` at the top level for
+  injection via interface — use the actual `Bot` import type and pass `bot` directly to command
+  registrars. Don't try to create a minimal interface for the bot parameter.
+- grammy `webhookCallback(bot, 'express')` returns an Express `RequestHandler`.
+  Assign it to a variable and call `handler(req, res)` — do NOT spread or treat as middleware
+  directly inside an arrow function without invoking it.
+- For cross-user guard on callback queries: `ctx.from?.id` is the user who clicked the button.
+  Compare to the userId embedded in the callback data (e.g., `swap_confirm:123`) to prevent
+  other users from confirming someone else's swap.
+
+### Server / Telegram Integration
+- When `@binancebuddy/telegram` is first added as a server import, its dist folder may not exist.
+  Run `pnpm exec tsc -p packages/telegram/tsconfig.json` (WITHOUT --noEmit) to build it first,
+  then re-run `--noEmit` on the server package to get clean types.
+- `implicit any` errors in Express handlers: always type destructured body as `req.body as { field?: Type }`.
+  Error callbacks in `.catch()` inside route handlers should be typed as `(err: unknown)`.
+
+### SKILL.md Files
+- Skills directory lives at project root: `skills/` (one .md file per tool).
+- Each file covers: description, endpoint, parameters (typed), example request, example response, notes/safety.
+- OpenClaw reads these to discover capabilities at runtime — the format must stay machine-readable.
+  Use consistent section headings: `## Description`, `## Endpoint`, `## Parameters`, `## Example Request`,
+  `## Example Response`, `## Notes`.
