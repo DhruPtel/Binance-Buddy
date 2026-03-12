@@ -25,7 +25,8 @@
     "@binancebuddy/telegram": "workspace:*",
     "cors": "^2.8.6",
     "express": "4",
-    "ioredis": "^5.10.0"
+    "ioredis": "^5.10.0",
+    "ethers": "6"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
