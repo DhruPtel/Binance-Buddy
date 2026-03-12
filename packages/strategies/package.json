@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@binancebuddy/core": "workspace:*",
-    "@binancebuddy/blockchain": "workspace:*"
+    "@binancebuddy/blockchain": "workspace:*",
+    "ethers": "6"
   }
 }
