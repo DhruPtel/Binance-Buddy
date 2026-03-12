@@ -41,3 +41,12 @@ export {
   executeSwap,
 } from './dex/index.js';
 export type { GasEstimate } from './dex/index.js';
+
+export {
+  encryptPrivateKey,
+  decryptPrivateKey,
+  saveKeystore,
+  loadKeystore,
+  getOrCreateAgentWallet,
+} from './keystore.js';
+export type { KeystoreFile, AgentWalletInfo } from './keystore.js';

@@ -210,3 +210,14 @@ export function resetCircuitBreaker(): void {
   consecutiveFailures = 0;
   console.log('[agent] Circuit breaker reset.');
 }
+
+/**
+ * Get current circuit breaker state. Used by the server health endpoint.
+ */
+export function getCircuitBreakerStatus(): { failures: number; tripped: boolean; threshold: number } {
+  return {
+    failures: consecutiveFailures,
+    tripped: consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD,
+    threshold: CIRCUIT_BREAKER_THRESHOLD,
+  };
+}
