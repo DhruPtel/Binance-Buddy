@@ -1,7 +1,7 @@
 # Binance Buddy — Progress
 
 ## Current State
-Day 7 COMPLETE. Strategies (sniper + farms), Telegram bot (all commands), server webhook, SKILL.md files. Next: Day 8 — Polish & Submit.
+Dashboard + infrastructure COMPLETE. Agent wallet (AES-256-GCM keystore), persistent buddy state, full dashboard (7 panels), extension built. Next: Day 8 — Polish & Submit.
 
 ## API Strategy (settled)
 - Token balances: Multicall3 on-chain (zero API keys needed)
@@ -15,6 +15,16 @@ Day 7 COMPLETE. Strategies (sniper + farms), Telegram bot (all commands), server
 - Add MORALIS_API_KEY (moralis.io, free) for tx history + archetype detection
 
 ---
+
+## Dashboard + Infrastructure (Mar 11)
+- keystore.ts: AES-256-GCM private key encryption (scrypt KDF); getOrCreateAgentWallet (env → keystore file → generate new)
+- agent.ts: getCircuitBreakerStatus() — exposes failure count + tripped state
+- server endpoints: GET /api/agent-wallet, GET/POST /api/buddy, GET /api/circuit-breaker, GET /api/telegram/status, POST /api/swap/quote, POST /api/swap/execute
+- /api/chat: now returns buddyState in every response; persists XP to .buddy-state.json
+- /api/swap/execute: uses agent wallet signer, runs full guardrail pipeline, awards XP on success
+- Dashboard rewrite (7 panels): Header (agent wallet addr+bal, CB status, Telegram), Health, Buddy (stage avatar with gradient, XP bar, mood), Research (summary + full report with farms/alerts), Chat (history, tool/XP annotations, CB banner), Trade (quote → guardrails → execute → BSCScan link), Trenches (sniper activation, farm scanner), Wallet Scanner, Activity Log, Test Runner (collapsed)
+- Extension build: pnpm --filter @binancebuddy/extension build → dist/ (popup, sidepanel, background, BuddyRenderer chunk)
+- 19/19 tests pass, all packages typecheck clean
 
 ## Day 7 Completed (Mar 11)
 - 7.1: packages/strategies/src/trenches/sniper.ts — PairCreated event listener (PancakeSwap V2 factory), assessNewPair() safety checks (metadata, liquidity, ownership renounce, mintable bytecode), honeypot heuristic; startSniper/stopSniper with configurable min liquidity
