@@ -7,6 +7,7 @@ import { Contract, type Provider } from 'ethers';
 import {
   PANCAKESWAP_V2_ROUTER,
   WBNB_ADDRESS,
+  NATIVE_BNB_ADDRESS,
 } from '@binancebuddy/core';
 import type { SwapParams, SwapQuote } from '@binancebuddy/core';
 
@@ -37,8 +38,13 @@ export async function findBestPath(
 ): Promise<{ path: string[]; amountOut: bigint } | null> {
   const router = new Contract(PANCAKESWAP_V2_ROUTER, ROUTER_ABI, provider);
 
+  // PancakeSwap pairs use WBNB, not the native BNB sentinel address (0xEeee...).
+  // Normalize before building paths; the executor handles native vs wrapped distinction.
+  const normIn = tokenIn.toLowerCase() === NATIVE_BNB_ADDRESS.toLowerCase() ? WBNB_ADDRESS : tokenIn;
+  const normOut = tokenOut.toLowerCase() === NATIVE_BNB_ADDRESS.toLowerCase() ? WBNB_ADDRESS : tokenOut;
+
   // Try direct path first
-  const directPath = [tokenIn, tokenOut];
+  const directPath = [normIn, normOut];
   try {
     const amounts: bigint[] = await router.getAmountsOut(amountIn, directPath);
     if (amounts[1] > 0n) {
@@ -49,9 +55,9 @@ export async function findBestPath(
   }
 
   // Route through WBNB (skip if tokenIn or tokenOut is already WBNB)
-  if (tokenIn.toLowerCase() !== WBNB_ADDRESS.toLowerCase() &&
-      tokenOut.toLowerCase() !== WBNB_ADDRESS.toLowerCase()) {
-    const wbnbPath = [tokenIn, WBNB_ADDRESS, tokenOut];
+  if (normIn.toLowerCase() !== WBNB_ADDRESS.toLowerCase() &&
+      normOut.toLowerCase() !== WBNB_ADDRESS.toLowerCase()) {
+    const wbnbPath = [normIn, WBNB_ADDRESS, normOut];
     try {
       const amounts: bigint[] = await router.getAmountsOut(amountIn, wbnbPath);
       if (amounts[2] > 0n) {
