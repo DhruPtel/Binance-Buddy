@@ -31,7 +31,14 @@ import {
   resetCircuitBreaker,
   getCircuitBreakerStatus,
   ALL_TOOLS,
+  researchCategory,
+  researchProtocol,
+  discoverNewProtocols,
+  getRegistry,
+  getRegistryEntry,
+  getLastDiscoveryRun,
 } from '@binancebuddy/ai';
+import type { ProtocolCategory } from '@binancebuddy/core';
 import {
   getWebhookHandler,
   startPolling,
@@ -265,6 +272,95 @@ app.post('/api/research/run', async (_req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 Research Endpoints
+// ---------------------------------------------------------------------------
+
+const VALID_CATEGORIES: ProtocolCategory[] = ['dex', 'lending', 'lp', 'yield', 'other'];
+
+app.get('/api/research/categories', async (_req, res) => {
+  try {
+    const registry = getRegistry();
+    const counts: Record<string, number> = {};
+    for (const cat of VALID_CATEGORIES) counts[cat] = 0;
+    for (const entry of registry) {
+      if (entry.verified && entry.category in counts) counts[entry.category]++;
+    }
+    res.json({
+      categories: VALID_CATEGORIES.map((name) => ({ name, count: counts[name] ?? 0 })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/research/category/:name', async (req, res) => {
+  const cat = req.params.name as ProtocolCategory;
+  if (!VALID_CATEGORIES.includes(cat)) {
+    res.status(400).json({ error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(', ')}` });
+    return;
+  }
+  try {
+    const summary = await researchCategory(cat);
+    res.json(summary);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/research/protocol/:slug', async (req, res) => {
+  const { slug } = req.params;
+  const walletAddress = req.query.wallet as string | undefined;
+
+  // Block unverified protocols from auto-research
+  const registryEntry = getRegistryEntry(slug);
+  if (registryEntry && !registryEntry.verified) {
+    res.status(400).json({
+      error: `Protocol '${slug}' is unverified (found via Brave search but not confirmed on DeFiLlama). Deep dive is not available.`,
+    });
+    return;
+  }
+
+  try {
+    let userProfile: import('@binancebuddy/core').UserProfile | undefined;
+    if (walletAddress) {
+      userProfile = await buildProfile(
+        walletAddress,
+        [],
+        MORALIS_API_KEY || undefined,
+        ANKR_API_KEY || undefined,
+      );
+    }
+
+    const report = await researchProtocol(slug, userProfile);
+
+    // Enrich category from registry if available
+    if (registryEntry) {
+      (report as { category: ProtocolCategory }).category = registryEntry.category;
+    }
+
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/research/discover', async (_req, res) => {
+  try {
+    const result = await discoverNewProtocols();
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/research/discoveries', (_req, res) => {
+  const all = getRegistry()
+    .sort((a, b) => b.discoveredAt - a.discoveredAt)
+    .slice(0, 20);
+  res.json({ protocols: all, lastRunAt: getLastDiscoveryRun() });
 });
 
 app.post('/api/chat', async (req, res) => {
@@ -776,7 +872,46 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; padding: 8px 0; user-select: none; }
   details summary:hover { color: var(--text-primary); }
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+  /* Research v2 */
+  .research-tabs { display:flex; gap:4px; margin-bottom:12px; flex-wrap:wrap; }
+  .rtab { padding:5px 12px; border-radius:6px; border:1px solid var(--bg-tertiary); background:var(--bg-tertiary); color:var(--text-sec); font-size:12px; cursor:pointer; transition:all 0.15s; }
+  .rtab:hover { border-color:var(--gold); color:var(--gold); }
+  .rtab.active { background:rgba(240,185,11,0.12); border-color:var(--gold); color:var(--gold); }
+  .proto-row { display:flex; align-items:center; padding:8px 10px; border-radius:6px; background:var(--bg-tertiary); margin-bottom:6px; gap:10px; }
+  .proto-name { font-weight:600; font-size:13px; flex:1; }
+  .proto-meta { font-size:11px; color:var(--text-sec); flex:2; display:flex; gap:16px; }
+  .proto-meta span { display:flex; flex-direction:column; }
+  .proto-meta .label { font-size:10px; color:var(--text-sec); opacity:.7; }
+  .proto-meta .value { font-size:12px; color:var(--text-primary); }
+  .pool-row { display:flex; align-items:center; padding:8px 10px; border-radius:6px; margin-bottom:4px; gap:10px; }
+  .pool-row.highlighted { background:rgba(240,185,11,0.08); border:1px solid rgba(240,185,11,0.2); }
+  .pool-row.other { background:var(--bg-tertiary); opacity:.8; }
+  .pool-symbol { font-weight:600; font-size:13px; flex:1; }
+  .pool-apy { font-size:14px; font-weight:700; color:var(--green); min-width:70px; }
+  .pool-tvl { font-size:12px; color:var(--text-sec); min-width:80px; }
+  .pool-il { font-size:11px; padding:2px 6px; border-radius:4px; }
+  .pool-il.low,.pool-il.none { background:rgba(14,203,129,0.1); color:var(--green); }
+  .pool-il.medium { background:rgba(255,140,0,0.1); color:var(--orange); }
+  .pool-il.high { background:rgba(246,70,93,0.1); color:var(--red); }
+  .section-header { font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--text-sec); text-transform:uppercase; margin:10px 0 6px; }
+  .strategy-brief { background:rgba(24,144,255,0.06); border:1px solid rgba(24,144,255,0.15); border-radius:8px; padding:10px 12px; font-size:13px; line-height:1.55; margin-bottom:12px; }
+  .risk-badges { display:flex; gap:8px; flex-wrap:wrap; }
+  .risk-badge { padding:3px 8px; border-radius:4px; font-size:11px; }
+  .rb-green { background:rgba(14,203,129,0.1); color:var(--green); }
+  .rb-red { background:rgba(246,70,93,0.1); color:var(--red); }
+  .rb-yellow { background:rgba(240,185,11,0.1); color:var(--gold); }
+  .rb-blue { background:rgba(24,144,255,0.1); color:var(--blue); }
+  .charts-row { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+  .chart-wrap { flex:1; min-width:180px; max-width:33%; background:var(--bg-tertiary); border-radius:8px; padding:10px; }
+  .chart-title { font-size:11px; color:var(--text-sec); margin-bottom:6px; text-align:center; }
+  .discovery-row { display:flex; align-items:center; padding:8px 10px; border-radius:6px; background:var(--bg-tertiary); margin-bottom:6px; gap:10px; }
+  .disc-name { font-weight:600; font-size:13px; flex:1; }
+  .disc-meta { font-size:11px; color:var(--text-sec); }
+  .badge-unverified { background:rgba(255,140,0,0.1); color:var(--orange); padding:2px 6px; border-radius:4px; font-size:10px; }
+  .back-btn { display:inline-flex; align-items:center; gap:4px; color:var(--text-sec); font-size:12px; cursor:pointer; margin-bottom:10px; }
+  .back-btn:hover { color:var(--text-primary); }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -910,20 +1045,70 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Row 3: Research Report (merged summary + full) -->
+  <!-- Row 3: Research (Phase 2) -->
   <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <h2 style="margin:0">Research Report</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin:0">Research</h2>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="research-age" class="text-sec text-sm"></span>
-        <button class="btn btn-sec btn-sm" id="research-run-btn" onclick="runResearchCycle()">Run ↺</button>
+        <button class="btn btn-sec btn-sm" id="research-run-btn" onclick="runResearchCycle()">Background ↺</button>
       </div>
     </div>
-    <div id="research-summary">
-      <div class="text-sec text-sm">No report yet. Click Run ↺</div>
+
+    <!-- Category tabs -->
+    <div class="research-tabs">
+      <button class="rtab" onclick="selectResearchTab('dex')">DEX</button>
+      <button class="rtab" onclick="selectResearchTab('lending')">Lending</button>
+      <button class="rtab" onclick="selectResearchTab('lp')">LP</button>
+      <button class="rtab" onclick="selectResearchTab('yield')">Yield Farming</button>
+      <button class="rtab" onclick="selectResearchTab('discover')">Discover 🔍</button>
     </div>
-    <div id="research-full" style="margin-top:12px">
-      <div class="text-sec text-sm">No report loaded.</div>
+
+    <!-- Category view -->
+    <div id="research-view-category" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="section-header" id="category-view-title">TOP PROTOCOLS</div>
+        <button class="btn btn-sec btn-sm" onclick="refreshCategory()">Refresh ↺</button>
+      </div>
+      <div id="category-list"><div class="text-sec text-sm">Select a category above.</div></div>
+    </div>
+
+    <!-- Deep dive view -->
+    <div id="research-view-deepdive" style="display:none">
+      <div class="back-btn" onclick="backToCategory()">← Back</div>
+      <div id="deepdive-title" style="font-size:16px;font-weight:700;margin-bottom:12px"></div>
+
+      <div class="section-header">Best Opportunities</div>
+      <div id="deepdive-best"></div>
+
+      <div class="section-header" id="other-pools-header" style="display:none">Other Pools</div>
+      <div id="deepdive-other"></div>
+
+      <div class="section-header">Strategy Brief</div>
+      <div id="deepdive-brief" class="strategy-brief text-sec text-sm">Loading...</div>
+
+      <div class="section-header">Charts</div>
+      <div id="deepdive-charts" class="charts-row"></div>
+
+      <div class="section-header">Risk Assessment</div>
+      <div id="deepdive-risk" class="risk-badges"></div>
+    </div>
+
+    <!-- Discovery view -->
+    <div id="research-view-discover" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="section-header">DISCOVERY FEED</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="disc-last" class="text-sec text-sm"></span>
+          <button class="btn btn-sec btn-sm" id="disc-scan-btn" onclick="runDiscovery()">Scan Now</button>
+        </div>
+      </div>
+      <div id="discovery-list"><div class="text-sec text-sm">Click Scan Now to discover new protocols.</div></div>
+    </div>
+
+    <!-- Legacy summary (shown when no tab selected) -->
+    <div id="research-summary">
+      <div class="text-sec text-sm">Select a category tab above, or click Background ↺ to refresh the market report.</div>
     </div>
   </div>
 
@@ -1186,121 +1371,331 @@ function runHealth() {
 }
 
 // =============================================================================
-// Research
+// Research v2
 // =============================================================================
 var _latestReport = null;
+var _activeCategory = null;
+var _charts = {};
 
+// ---------------------------------------------------------------------------
+// renderChart — reusable client-side chart renderer (Fix #6)
+// Takes ChartConfig JSON from API and renders via Chart.js
+// ---------------------------------------------------------------------------
+function renderChart(canvasId, chartConfig) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas || !window.Chart) return;
+  if (_charts[canvasId]) { _charts[canvasId].destroy(); delete _charts[canvasId]; }
+  var ctx = canvas.getContext('2d');
+  _charts[canvasId] = new Chart(ctx, {
+    type: chartConfig.type,
+    data: {
+      labels: chartConfig.labels,
+      datasets: chartConfig.datasets.map(function(ds) {
+        return {
+          label: ds.label,
+          data: ds.data,
+          borderColor: ds.color,
+          backgroundColor: ds.color + '33',
+          tension: 0.3,
+          fill: chartConfig.type === 'line',
+          pointRadius: 2
+        };
+      })
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: chartConfig.datasets.length > 1, labels: { color: '#848E9C', font: { size: 10 } } } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6, color: '#848E9C', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#848E9C', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Background market report (30min loop, legacy)
+// ---------------------------------------------------------------------------
 function loadResearchSummary() {
   fetch('/api/research/latest')
     .then(function(r) { return r.status === 204 ? null : r.json(); })
     .then(function(d) {
       _latestReport = d;
-      renderResearchSummary(d);
-      renderResearchFull(d);
-      if (d) updateSniper(d);
+      if (d) {
+        var mo = d.marketOverview;
+        var el = document.getElementById('research-summary');
+        if (el && !_activeCategory) {
+          var change = mo.bnbChange24h || 0;
+          var changeColor = change >= 0 ? 'var(--green)' : 'var(--red)';
+          el.innerHTML = '<div class="market-row">' +
+            '<span class="bnb-price">$' + (mo.bnbPriceUsd || 0).toFixed(2) + '</span>' +
+            '<span style="color:' + changeColor + ';font-size:12px">' + (change >= 0 ? '+' : '') + change.toFixed(1) + '%</span>' +
+            '<span class="sentiment-badge sentiment-' + (mo.marketSentiment || 'neutral') + '">' + (mo.marketSentiment || 'neutral') + '</span>' +
+            '</div><div class="text-sec text-sm">Updated: ' + relativeTime(d.timestamp) + ' — Select a tab above to explore protocols</div>';
+        }
+        document.getElementById('research-age').textContent = relativeTime(d.timestamp);
+        updateSniper(d);
+      }
     })
     .catch(function() {});
-}
-
-function renderResearchSummary(r) {
-  var el = document.getElementById('research-summary');
-  if (!r) { el.innerHTML = '<div class="text-sec text-sm">No report yet. Click Run ↺</div>'; return; }
-  var mo = r.marketOverview;
-  var change = mo.bnbChange24h || 0;
-  var changeColor = change >= 0 ? 'var(--green)' : 'var(--red)';
-  var changeSign = change >= 0 ? '+' : '';
-  var sentCls = 'sentiment-' + (mo.marketSentiment || 'neutral');
-  var topFarm = r.opportunities && r.opportunities.length > 0 ? r.opportunities[0] : null;
-  el.innerHTML = '<div class="market-row">' +
-    '<span class="bnb-price">$' + (mo.bnbPriceUsd || 0).toFixed(2) + '</span>' +
-    '<span style="color:' + changeColor + ';font-size:12px">' + changeSign + change.toFixed(1) + '%</span>' +
-    '<span class="sentiment-badge ' + sentCls + '">' + (mo.marketSentiment || 'neutral') + '</span>' +
-    '</div>' +
-    '<div class="text-sec text-sm">Updated: ' + relativeTime(r.timestamp) + '</div>' +
-    (topFarm ? '<div class="text-sm" style="margin-top:6px">Top: <strong>' + escapeHtml(topFarm.poolName) + '</strong> ' +
-      '<span style="color:var(--gold)">' + topFarm.apy.toFixed(1) + '%</span></div>' : '') +
-    '<div class="text-sec text-sm">Alerts: ' + (r.risks ? r.risks.length : 0) + ' active</div>';
-  document.getElementById('research-age').textContent = relativeTime(r.timestamp);
-}
-
-function renderResearchFull(r) {
-  var el = document.getElementById('research-full');
-  if (!r) { el.innerHTML = '<div class="text-sec text-sm">No report loaded.</div>'; return; }
-  var mo = r.marketOverview;
-  var change = mo.bnbChange24h || 0;
-  var changeColor = change >= 0 ? 'var(--green)' : 'var(--red)';
-  var changeSign = change >= 0 ? '+' : '';
-  var sentCls = 'sentiment-' + (mo.marketSentiment || 'neutral');
-  var html = '<div class="section-label">Market Overview</div>' +
-    '<div class="market-row">' +
-      '<span class="bnb-price">$' + (mo.bnbPriceUsd || 0).toFixed(2) + '</span>' +
-      '<span style="color:' + changeColor + ';font-size:13px;font-weight:600">' + changeSign + change.toFixed(2) + '%</span>' +
-      '<span class="sentiment-badge ' + sentCls + '">' + (mo.marketSentiment || 'neutral') + '</span>' +
-    '</div>';
-  if (mo.totalTvlBsc) {
-    html += '<div class="text-sec text-sm">Total TVL BSC: $' + (mo.totalTvlBsc / 1e9).toFixed(2) + 'B</div>';
-  }
-  // Farms table
-  var farms = r.opportunities || [];
-  if (farms.length > 0) {
-    html += '<div class="section-label" style="margin-top:12px">Farm Opportunities</div>' +
-      '<table class="farm-table"><thead><tr><th>Protocol</th><th>Pool</th><th>APY</th><th>Risk</th><th>TVL</th></tr></thead><tbody>';
-    for (var i = 0; i < Math.min(farms.length, 6); i++) {
-      var f = farms[i];
-      var riskCls = f.riskScore <= 3 ? 'risk-low' : f.riskScore <= 6 ? 'risk-med' : 'risk-high';
-      var apyCls = f.apy >= 20 ? 'apy-high' : f.apy >= 10 ? 'apy-mid' : '';
-      var tvlStr = f.tvl >= 1e9 ? '$' + (f.tvl/1e9).toFixed(1) + 'B' :
-                   f.tvl >= 1e6 ? '$' + (f.tvl/1e6).toFixed(1) + 'M' : '$' + (f.tvl/1e3).toFixed(0) + 'K';
-      html += '<tr><td>' + escapeHtml(f.protocol) + '</td>' +
-              '<td>' + escapeHtml(f.poolName) + '</td>' +
-              '<td class="' + apyCls + '">' + f.apy.toFixed(1) + '%</td>' +
-              '<td class="' + riskCls + '">' + f.riskScore + '/10</td>' +
-              '<td class="text-sec">' + tvlStr + '</td></tr>';
-    }
-    html += '</tbody></table>';
-  }
-  // Alerts
-  var alerts = r.risks || [];
-  if (alerts.length > 0) {
-    html += '<div class="section-label" style="margin-top:12px">Risk Alerts</div>';
-    for (var j = 0; j < alerts.length; j++) {
-      var a = alerts[j];
-      var aCls = a.severity === 'critical' || a.severity === 'high' ? 'badge-red' : a.severity === 'medium' ? 'badge-orange' : 'badge-blue';
-      html += '<div style="padding:4px 0;font-size:12px"><span class="badge ' + aCls + '">' +
-        escapeHtml(a.severity) + '</span> ' + escapeHtml(a.message) + '</div>';
-    }
-  }
-  // Recommendations
-  var recs = r.recommendations || [];
-  if (recs.length > 0) {
-    html += '<div class="section-label" style="margin-top:12px">Recommendations</div>';
-    for (var k = 0; k < recs.length; k++) {
-      html += '<div style="padding:3px 0;font-size:13px">' + (k+1) + '. ' + escapeHtml(recs[k]) + '</div>';
-    }
-  }
-  el.innerHTML = html;
 }
 
 function runResearchCycle() {
   var btn = document.getElementById('research-run-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
-  log('RESEARCH', 'Research cycle started...');
+  log('RESEARCH', 'Background research cycle started...');
   fetch('/api/research/run', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       btn.disabled = false;
-      btn.textContent = 'Run ↺';
+      btn.textContent = 'Background ↺';
       _latestReport = d;
-      renderResearchSummary(d);
-      renderResearchFull(d);
       if (d) updateSniper(d);
       log('RESEARCH', 'Research cycle complete. BNB: $' + (d.marketOverview ? d.marketOverview.bnbPriceUsd.toFixed(2) : '?'));
     })
     .catch(function(e) {
       btn.disabled = false;
-      btn.textContent = 'Run ↺';
+      btn.textContent = 'Background ↺';
       log('ERROR', 'Research run failed: ' + e.message);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Tab management
+// ---------------------------------------------------------------------------
+function selectResearchTab(tab) {
+  // Update tab styles
+  document.querySelectorAll('.rtab').forEach(function(el) { el.classList.remove('active'); });
+  var tabs = document.querySelectorAll('.rtab');
+  var tabNames = ['dex','lending','lp','yield','discover'];
+  var idx = tabNames.indexOf(tab);
+  if (idx >= 0 && tabs[idx]) tabs[idx].classList.add('active');
+
+  // Hide all views
+  document.getElementById('research-summary').style.display = 'none';
+  document.getElementById('research-view-category').style.display = 'none';
+  document.getElementById('research-view-deepdive').style.display = 'none';
+  document.getElementById('research-view-discover').style.display = 'none';
+
+  if (tab === 'discover') {
+    document.getElementById('research-view-discover').style.display = 'block';
+    loadDiscoveries();
+  } else {
+    _activeCategory = tab;
+    document.getElementById('research-view-category').style.display = 'block';
+    document.getElementById('category-view-title').textContent = 'TOP PROTOCOLS IN ' + tab.toUpperCase();
+    loadCategoryProtocols(tab);
+  }
+}
+
+function refreshCategory() {
+  if (_activeCategory) loadCategoryProtocols(_activeCategory);
+}
+
+function backToCategory() {
+  document.getElementById('research-view-deepdive').style.display = 'none';
+  document.getElementById('research-view-category').style.display = 'block';
+}
+
+// ---------------------------------------------------------------------------
+// Category protocol list
+// ---------------------------------------------------------------------------
+function formatTvl(v) {
+  if (!v) return '$0';
+  if (v >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+  return '$' + v.toFixed(0);
+}
+
+function loadCategoryProtocols(category) {
+  var list = document.getElementById('category-list');
+  list.innerHTML = '<div class="text-sec text-sm"><span class="spinner"></span>Loading ' + category + ' protocols...</div>';
+  fetch('/api/research/category/' + category)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.protocols || d.protocols.length === 0) {
+        list.innerHTML = '<div class="text-sec text-sm">No protocols found. Try running a discovery scan first.</div>';
+        return;
+      }
+      var html = '';
+      d.protocols.forEach(function(p) {
+        html += '<div class="proto-row">' +
+          '<span class="proto-name">' + escapeHtml(p.name) + '</span>' +
+          '<div class="proto-meta">' +
+            '<span><span class="label">TVL</span><span class="value">' + formatTvl(p.tvlUsd) + '</span></span>' +
+            '<span><span class="label">24h Vol</span><span class="value">' + formatTvl(p.volume24h) + '</span></span>' +
+          '</div>' +
+          '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\'' + escapeHtml(p.slug) + '\')">Dive →</button>' +
+          '</div>';
+      });
+      list.innerHTML = html;
+      log('RESEARCH', 'Loaded ' + d.protocols.length + ' protocols in ' + category);
+    })
+    .catch(function(e) {
+      list.innerHTML = '<div style="color:var(--red);font-size:12px">Error: ' + escapeHtml(e.message) + '</div>';
+      log('ERROR', 'Category load failed: ' + e.message);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Deep dive
+// ---------------------------------------------------------------------------
+function loadDeepDive(slug) {
+  document.getElementById('research-view-category').style.display = 'none';
+  document.getElementById('research-view-deepdive').style.display = 'block';
+  document.getElementById('deepdive-title').textContent = slug.charAt(0).toUpperCase() + slug.slice(1).replace(/-/g,' ') + ' — Deep Dive';
+  document.getElementById('deepdive-best').innerHTML = '<div class="text-sec text-sm"><span class="spinner"></span>Loading...</div>';
+  document.getElementById('deepdive-other').innerHTML = '';
+  document.getElementById('deepdive-brief').textContent = 'Loading strategy brief...';
+  document.getElementById('deepdive-charts').innerHTML = '';
+  document.getElementById('deepdive-risk').innerHTML = '';
+
+  var walletParam = _wallet ? '?wallet=' + encodeURIComponent(_wallet) : '';
+  log('RESEARCH', 'Loading deep dive: ' + slug);
+
+  fetch('/api/research/protocol/' + encodeURIComponent(slug) + walletParam)
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || r.statusText); });
+      return r.json();
+    })
+    .then(function(report) {
+      renderDeepDive(report);
+      log('RESEARCH', 'Deep dive loaded: ' + report.protocolName + ' (' + report.pools.length + ' pools)');
+    })
+    .catch(function(e) {
+      document.getElementById('deepdive-best').innerHTML = '<div style="color:var(--red);font-size:12px">Error: ' + escapeHtml(e.message) + '</div>';
+      log('ERROR', 'Deep dive failed: ' + e.message);
+    });
+}
+
+function renderPoolRow(pool) {
+  var ilCls = pool.ilRisk === 'none' || pool.ilRisk === 'low' ? 'low' : pool.ilRisk === 'medium' ? 'medium' : 'high';
+  var ilLabel = pool.ilRisk === 'none' ? 'No IL' : 'IL: ' + pool.ilRisk;
+  return '<div class="pool-row ' + (pool.isHighlighted ? 'highlighted' : 'other') + '">' +
+    '<span class="pool-symbol">' + escapeHtml(pool.symbol) + '</span>' +
+    '<span class="pool-apy">' + pool.apy.toFixed(1) + '%</span>' +
+    '<span class="pool-tvl">' + formatTvl(pool.tvlUsd) + '</span>' +
+    '<span class="pool-il ' + ilCls + '">' + ilLabel + '</span>' +
+    '<span class="text-sec" style="font-size:10px">' + pool.poolType + '</span>' +
+    '</div>';
+}
+
+function renderDeepDive(report) {
+  // Title
+  document.getElementById('deepdive-title').textContent = report.protocolName + ' — Deep Dive';
+
+  // Pools: highlighted (top 3) vs other (4-5)
+  var highlighted = (report.pools || []).filter(function(p) { return p.isHighlighted; });
+  var other = (report.pools || []).filter(function(p) { return !p.isHighlighted; });
+
+  document.getElementById('deepdive-best').innerHTML = highlighted.length
+    ? highlighted.map(renderPoolRow).join('')
+    : '<div class="text-sec text-sm">No yield pools found for this protocol on BSC.</div>';
+
+  var otherHeader = document.getElementById('other-pools-header');
+  if (other.length > 0) {
+    otherHeader.style.display = 'block';
+    document.getElementById('deepdive-other').innerHTML = other.map(renderPoolRow).join('');
+  } else {
+    otherHeader.style.display = 'none';
+    document.getElementById('deepdive-other').innerHTML = '';
+  }
+
+  // Strategy brief
+  document.getElementById('deepdive-brief').textContent = report.strategyBrief || 'No strategy brief available.';
+
+  // Charts — all data comes from API JSON, rendered by renderChart()
+  var chartsEl = document.getElementById('deepdive-charts');
+  chartsEl.innerHTML = '';
+  if (report.charts && report.charts.length > 0) {
+    report.charts.forEach(function(chartConfig, i) {
+      var canvasId = 'dd-chart-' + i;
+      chartsEl.innerHTML += '<div class="chart-wrap"><div class="chart-title">' + escapeHtml(chartConfig.title) + '</div>' +
+        '<canvas id="' + canvasId + '" height="120"></canvas></div>';
+    });
+    // Render after DOM is updated
+    setTimeout(function() {
+      report.charts.forEach(function(chartConfig, i) {
+        renderChart('dd-chart-' + i, chartConfig);
+      });
+    }, 0);
+  } else {
+    chartsEl.innerHTML = '<div class="text-sec text-sm">No chart data available yet.</div>';
+  }
+
+  // Risk badges
+  var risk = report.risk || {};
+  var badges = '';
+  badges += '<span class="risk-badge ' + (risk.isAudited ? 'rb-green' : 'rb-red') + '">' + (risk.isAudited ? '✓ Audited' : '⚠ No Audit') + '</span>';
+  badges += '<span class="risk-badge ' + (risk.contractVerified ? 'rb-green' : 'rb-yellow') + '">' + (risk.contractVerified ? '✓ Verified' : '? Unverified') + '</span>';
+  var trendIcon = risk.tvlTrend === 'growing' ? '↑' : risk.tvlTrend === 'declining' ? '↓' : '→';
+  var trendCls = risk.tvlTrend === 'growing' ? 'rb-green' : risk.tvlTrend === 'declining' ? 'rb-red' : 'rb-blue';
+  badges += '<span class="risk-badge ' + trendCls + '">' + trendIcon + ' TVL ' + (risk.tvlTrend || 'unknown') + '</span>';
+  badges += '<span class="risk-badge rb-blue">Liquidity: ' + (risk.liquidityDepth || '?') + '</span>';
+  if (risk.ageMonths) badges += '<span class="risk-badge rb-blue">Age: ' + risk.ageMonths + 'mo</span>';
+  if (risk.flags && risk.flags.length > 0) {
+    risk.flags.forEach(function(flag) {
+      badges += '<span class="risk-badge rb-yellow" title="' + escapeHtml(flag) + '">⚠ ' + escapeHtml(flag.slice(0, 40)) + (flag.length > 40 ? '…' : '') + '</span>';
+    });
+  }
+  document.getElementById('deepdive-risk').innerHTML = badges;
+}
+
+// ---------------------------------------------------------------------------
+// Discovery
+// ---------------------------------------------------------------------------
+function loadDiscoveries() {
+  var list = document.getElementById('discovery-list');
+  list.innerHTML = '<div class="text-sec text-sm"><span class="spinner"></span>Loading...</div>';
+  fetch('/api/research/discoveries')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var lastRun = document.getElementById('disc-last');
+      lastRun.textContent = d.lastRunAt ? 'Last: ' + relativeTime(d.lastRunAt) : 'Never run';
+      if (!d.protocols || d.protocols.length === 0) {
+        list.innerHTML = '<div class="text-sec text-sm">No protocols discovered yet. Click Scan Now.</div>';
+        return;
+      }
+      var html = '';
+      d.protocols.forEach(function(p) {
+        var verifiedBadge = p.verified
+          ? ''
+          : '<span class="badge-unverified">⚠ Unverified</span>';
+        var actionBtn = p.verified
+          ? '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\'' + escapeHtml(p.slug) + '\')">Research →</button>'
+          : '<span class="text-sec text-sm">Not researchable</span>';
+        html += '<div class="discovery-row">' +
+          '<span class="disc-name">' + escapeHtml(p.name) + '</span>' +
+          '<span class="disc-meta">' + p.category + ' · ' + formatTvl(p.tvlUsd) + ' · ' + relativeTime(p.discoveredAt) + '</span>' +
+          verifiedBadge + actionBtn +
+          '</div>';
+      });
+      list.innerHTML = html;
+    })
+    .catch(function(e) {
+      list.innerHTML = '<div style="color:var(--red);font-size:12px">Error: ' + escapeHtml(e.message) + '</div>';
+    });
+}
+
+function runDiscovery() {
+  var btn = document.getElementById('disc-scan-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  log('RESEARCH', 'Protocol discovery scan started...');
+  fetch('/api/research/discover', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      btn.disabled = false;
+      btn.textContent = 'Scan Now';
+      log('RESEARCH', 'Discovery complete: ' + d.newProtocols.length + ' new protocols found');
+      loadDiscoveries();
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.textContent = 'Scan Now';
+      log('ERROR', 'Discovery failed: ' + e.message);
     });
 }
 
