@@ -292,15 +292,19 @@ app.post('/api/chat', async (req, res) => {
 
     const walletStateData = walletAddress
       ? await scanWallet(provider, address, COINGECKO_API_KEY || undefined)
-      : {
-          address,
-          chainId: 56,
-          bnbBalance: '0',
-          bnbBalanceFormatted: 0,
-          tokens: [],
-          totalValueUsd: 0,
-          lastScanned: Date.now(),
-        };
+      : await (async () => {
+          const bnbBalWei = agentWallet ? await getBnbBalance(provider, address) : 0n;
+          const bnbBalFormatted = parseFloat(ethers.formatEther(bnbBalWei));
+          return {
+            address,
+            chainId: 56,
+            bnbBalance: bnbBalWei.toString(),
+            bnbBalanceFormatted: bnbBalFormatted,
+            tokens: [],
+            totalValueUsd: 0,
+            lastScanned: Date.now(),
+          };
+        })();
 
     const userProfile = walletAddress
       ? await buildProfile(address, walletStateData.tokens, MORALIS_API_KEY || undefined, ANKR_API_KEY || undefined)
