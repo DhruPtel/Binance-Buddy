@@ -25,7 +25,9 @@ import {
   getPoolsForProtocol,
   fetchProtocolDetail,
   fetchPoolHistory,
+  fetchYieldPools,
 } from './data/defillama.js';
+import type { PoolHistoryEntry } from './data/defillama.js';
 
 // In-memory store (Redis in Day 7)
 let latestReport: ResearchReport | null = null;
@@ -312,6 +314,14 @@ function buildPoolOpportunities(pools: DefiLlamaPool[]): PoolOpportunity[] {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Chart builders
+// ---------------------------------------------------------------------------
+
+function formatChartDate(ts: number, isUnixSeconds = false): string {
+  return new Date(isUnixSeconds ? ts * 1000 : ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function buildTvlChart(
   tvlHistory: Array<{ date: number; tvl: number }>,
 ): ChartConfig {
@@ -319,7 +329,7 @@ function buildTvlChart(
   return {
     title: 'TVL (30d)',
     type: 'line',
-    labels: recent.map((e) => new Date(e.date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+    labels: recent.map((e) => formatChartDate(e.date, true)),
     datasets: [{
       label: 'TVL USD',
       data: recent.map((e) => Math.round(e.tvl)),
@@ -328,26 +338,56 @@ function buildTvlChart(
   };
 }
 
-function buildApyChart(
-  histories: Array<Array<{ timestamp: number; apy: number; tvlUsd: number }>>,
+function buildApyBaseChart(
+  histories: PoolHistoryEntry[][],
   pools: DefiLlamaPool[],
-): ChartConfig {
-  const labels = histories[0]?.map((e) =>
-    new Date(e.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-  ) ?? [];
-
+  title: string,
+): ChartConfig | null {
   const colors = ['#F0B90B', '#0ECB81', '#1890FF'];
   const datasets = histories.slice(0, 3).map((history, i) => ({
     label: pools[i]?.symbol ?? `Pool ${i + 1}`,
-    data: history.map((e) => Math.round(e.apy * 100) / 100),
+    data: history.map((e) => Math.round((e.apyBase ?? e.apy) * 100) / 100),
     color: colors[i] ?? '#888888',
   }));
-
-  return { title: 'APY (30d)', type: 'line', labels, datasets };
+  if (datasets.every((ds) => ds.data.every((v) => v === 0))) return null;
+  const labels = histories[0]?.map((e) => formatChartDate(e.timestamp)) ?? [];
+  return { title, type: 'line', labels, datasets };
 }
 
-function buildVolumeChart(pools: DefiLlamaPool[]): ChartConfig {
-  const top5 = pools.slice(0, 5);
+function buildApyRewardChart(
+  histories: PoolHistoryEntry[][],
+  pools: DefiLlamaPool[],
+): ChartConfig | null {
+  const colors = ['#B659FF', '#FF8C00', '#1890FF'];
+  const datasets = histories.slice(0, 3).map((history, i) => ({
+    label: pools[i]?.symbol ?? `Pool ${i + 1}`,
+    data: history.map((e) => Math.round((e.apyReward ?? 0) * 100) / 100),
+    color: colors[i] ?? '#888888',
+  }));
+  if (datasets.every((ds) => ds.data.every((v) => v === 0))) return null;
+  const labels = histories[0]?.map((e) => formatChartDate(e.timestamp)) ?? [];
+  return { title: 'Reward APY (30d)', type: 'line', labels, datasets };
+}
+
+function buildIlChart(
+  histories: PoolHistoryEntry[][],
+  pools: DefiLlamaPool[],
+): ChartConfig | null {
+  const hasData = histories.some((h) => h.some((e) => e.il7d !== null));
+  if (!hasData) return null;
+  const colors = ['#F6465D', '#FF8C00', '#1890FF'];
+  const datasets = histories.slice(0, 3).map((history, i) => ({
+    label: pools[i]?.symbol ?? `Pool ${i + 1}`,
+    data: history.map((e) => Math.round((e.il7d ?? 0) * 100) / 100),
+    color: colors[i] ?? '#888888',
+  }));
+  const labels = histories[0]?.map((e) => formatChartDate(e.timestamp)) ?? [];
+  return { title: 'IL Estimate 7d (30d)', type: 'line', labels, datasets };
+}
+
+function buildVolumeChart(pools: DefiLlamaPool[]): ChartConfig | null {
+  const top5 = pools.slice(0, 5).filter((p) => (p.volumeUsd1d ?? 0) > 0);
+  if (top5.length === 0) return null;
   return {
     title: '24h Volume by Pool',
     type: 'bar',
@@ -358,6 +398,73 @@ function buildVolumeChart(pools: DefiLlamaPool[]): ChartConfig {
       color: '#1890FF',
     }],
   };
+}
+
+function buildPoolTvlChart(pools: DefiLlamaPool[]): ChartConfig | null {
+  const top5 = pools.slice(0, 5).filter((p) => p.tvlUsd > 0);
+  if (top5.length === 0) return null;
+  return {
+    title: 'Pool TVL Comparison',
+    type: 'bar',
+    labels: top5.map((p) => p.symbol),
+    datasets: [{
+      label: 'TVL USD',
+      data: top5.map((p) => Math.round(p.tvlUsd)),
+      color: '#F0B90B',
+    }],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Chart selector — picks 3 charts based on protocol category
+// ---------------------------------------------------------------------------
+
+function selectChartsForCategory(
+  category: ProtocolCategory,
+  tvlHistory: Array<{ date: number; tvl: number }>,
+  poolHistories: PoolHistoryEntry[][],
+  pools: DefiLlamaPool[],
+): ChartConfig[] {
+  const charts: ChartConfig[] = [];
+
+  const tryPush = (chart: ChartConfig | null) => {
+    if (chart && charts.length < 3) charts.push(chart);
+  };
+
+  switch (category) {
+    case 'dex': {
+      tryPush(buildVolumeChart(pools));
+      if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
+      tryPush(buildApyBaseChart(poolHistories, pools, 'Fee APY (30d)'));
+      break;
+    }
+    case 'lending': {
+      tryPush(buildApyBaseChart(poolHistories, pools, 'Supply APY (30d)'));
+      tryPush(buildApyRewardChart(poolHistories, pools));
+      if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
+      break;
+    }
+    case 'lp':
+    case 'yield': {
+      tryPush(buildApyBaseChart(poolHistories, pools, 'APY Base+Reward (30d)'));
+      tryPush(buildIlChart(poolHistories, pools));
+      if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
+      break;
+    }
+    default: {
+      tryPush(buildApyBaseChart(poolHistories, pools, 'APY (30d)'));
+      if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
+      tryPush(buildPoolTvlChart(pools));
+      break;
+    }
+  }
+
+  // If category-specific charts yielded nothing, fall back to TVL
+  if (charts.length === 0 && tvlHistory.length > 0) {
+    charts.push(buildTvlChart(tvlHistory));
+  }
+
+  return charts;
 }
 
 function buildRiskAssessment(
@@ -478,8 +585,27 @@ export async function researchCategory(category: ProtocolCategory): Promise<Cate
   const cached = categoryCache.get(category);
   if (cached && Date.now() < cached.expiresAt) return cached.summary;
 
-  const protocols = await getTopProtocolsByCategory(category, 10);
-  const summary: CategorySummary = { category, protocols, lastUpdated: Date.now() };
+  const [protocols, allPools] = await Promise.all([
+    getTopProtocolsByCategory(category, 10),
+    fetchYieldPools(),
+  ]);
+
+  // Build max APY lookup by project slug (single pass over cached pool list)
+  const maxApyByProject = new Map<string, number>();
+  for (const pool of allPools) {
+    const current = maxApyByProject.get(pool.project);
+    if (current === undefined || pool.apy > current) {
+      maxApyByProject.set(pool.project, pool.apy);
+    }
+  }
+
+  // Enrich each protocol with its best APY
+  const enriched = protocols.map((p) => ({
+    ...p,
+    bestApy: maxApyByProject.get(p.slug) ?? undefined,
+  }));
+
+  const summary: CategorySummary = { category, protocols: enriched, lastUpdated: Date.now() };
 
   categoryCache.set(category, { summary, expiresAt: Date.now() + CATEGORY_CACHE_TTL });
   return summary;
@@ -513,11 +639,12 @@ export async function researchProtocol(
 
   const pools = buildPoolOpportunities(rawPools);
 
-  // Build charts
-  const charts: ChartConfig[] = [];
-  if (tvlHistory.length > 0) charts.push(buildTvlChart(tvlHistory));
-  if (histories.some((h) => h.length > 0)) charts.push(buildApyChart(histories, top3Pools));
-  if (rawPools.some((p) => (p.volumeUsd1d ?? 0) > 0)) charts.push(buildVolumeChart(rawPools));
+  // Determine category from registry or infer
+  const registryEntry = (await import('./discovery.js')).getRegistryEntry(slug);
+  const category: ProtocolCategory = registryEntry?.category ?? 'other';
+
+  // Build category-specific charts
+  const charts = selectChartsForCategory(category, tvlHistory, histories, rawPools);
 
   const risk = buildRiskAssessment(isAudited, tvlHistory, Date.now() - 365 * 24 * 60 * 60 * 1000);
 
@@ -530,7 +657,7 @@ export async function researchProtocol(
   const report: DeepDiveReport = {
     protocolSlug: slug,
     protocolName,
-    category: 'other', // caller can override from registry if needed
+    category,
     tvlUsd: latestTvl,
     volume24h: rawPools.reduce((s, p) => s + (p.volumeUsd1d ?? 0), 0),
     generatedAt: Date.now(),

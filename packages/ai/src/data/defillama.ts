@@ -111,7 +111,6 @@ interface RawProtocol {
   chains?: string[];
   tvl?: number;
   change_1d?: number;
-  volume_24h?: number;
   url?: string;
   address?: string;
 }
@@ -145,6 +144,9 @@ interface RawChartResponse {
     timestamp: string;
     apy: number;
     tvlUsd: number;
+    apyBase?: number | null;
+    apyReward?: number | null;
+    il7d?: number | null;
   }>;
 }
 
@@ -172,7 +174,7 @@ export async function fetchAllProtocols(): Promise<ProtocolEntry[]> {
         category: categorizeProtocol(p),
         chain: 'bsc',
         tvlUsd: p.tvl ?? 0,
-        volume24h: p.volume_24h ?? 0,
+        volume24h: 0, // DeFiLlama /protocols doesn't return volume; use pool-level volumeUsd1d in deep dives
         website: p.url,
         contractAddresses: p.address ? [p.address] : [],
         discoveredAt: Date.now(),
@@ -277,11 +279,21 @@ export async function fetchYieldPools(): Promise<DefiLlamaPool[]> {
  * Fetch 30-day APY + TVL history for a pool UUID. Caches 15min.
  * Returns [] on failure.
  */
+/** Single data point from pool history chart */
+export interface PoolHistoryEntry {
+  timestamp: number;
+  apy: number;
+  tvlUsd: number;
+  apyBase: number | null;
+  apyReward: number | null;
+  il7d: number | null;
+}
+
 export async function fetchPoolHistory(
   poolId: string,
-): Promise<Array<{ timestamp: number; apy: number; tvlUsd: number }>> {
+): Promise<PoolHistoryEntry[]> {
   const key = `history:${poolId}`;
-  const cached = cacheGet<Array<{ timestamp: number; apy: number; tvlUsd: number }>>(key);
+  const cached = cacheGet<PoolHistoryEntry[]>(key);
   if (cached) return cached;
 
   try {
@@ -289,12 +301,15 @@ export async function fetchPoolHistory(
     if (!res.ok) throw new Error(`DeFiLlama /chart/${poolId}: ${res.status}`);
     const raw = (await res.json()) as RawChartResponse;
 
-    const history = (raw.data ?? [])
+    const history: PoolHistoryEntry[] = (raw.data ?? [])
       .slice(-30)
       .map((entry) => ({
         timestamp: new Date(entry.timestamp).getTime(),
         apy: entry.apy ?? 0,
         tvlUsd: entry.tvlUsd ?? 0,
+        apyBase: entry.apyBase ?? null,
+        apyReward: entry.apyReward ?? null,
+        il7d: entry.il7d ?? null,
       }));
 
     cacheSet(key, history);

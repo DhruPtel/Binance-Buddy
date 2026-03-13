@@ -458,6 +458,7 @@ export interface ProtocolEntry {
   chain: string;
   tvlUsd: number;
   volume24h: number;
+  bestApy?: number;             // max APY across BSC yield pools for this protocol
   website?: string;
   contractAddresses: string[];
   discoveredAt: number;
