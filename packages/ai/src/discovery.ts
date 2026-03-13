@@ -191,10 +191,9 @@ async function discoverFromBrave(): Promise<ProtocolEntry[]> {
 export async function discoverNewProtocols(): Promise<DiscoveryResult> {
   const totalBefore = registry.size;
 
-  const [defiLlamaNew, braveNew] = await Promise.all([
-    discoverFromDeFiLlama(),
-    discoverFromBrave(),
-  ]);
+  // Sequential: DeFiLlama first (populates registry), then Brave (checks against it)
+  const defiLlamaNew = await discoverFromDeFiLlama();
+  const braveNew = await discoverFromBrave();
 
   // Deduplicate (Brave may find something DeFiLlama already found in same run)
   const slugsSeen = new Set<string>();

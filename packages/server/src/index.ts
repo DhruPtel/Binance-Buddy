@@ -1527,7 +1527,7 @@ function loadCategoryProtocols(category) {
             '<span><span class="label">TVL</span><span class="value">' + formatTvl(p.tvlUsd) + '</span></span>' +
             '<span><span class="label">24h Vol</span><span class="value">' + formatTvl(p.volume24h) + '</span></span>' +
           '</div>' +
-          '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\'' + escapeHtml(p.slug) + '\')">Dive →</button>' +
+          '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\\'' + escapeHtml(p.slug) + '\\')">Dive →</button>' +
           '</div>';
       });
       list.innerHTML = html;
@@ -1664,7 +1664,7 @@ function loadDiscoveries() {
           ? ''
           : '<span class="badge-unverified">⚠ Unverified</span>';
         var actionBtn = p.verified
-          ? '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\'' + escapeHtml(p.slug) + '\')">Research →</button>'
+          ? '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\\'' + escapeHtml(p.slug) + '\\')">Research →</button>'
           : '<span class="text-sec text-sm">Not researchable</span>';
         html += '<div class="discovery-row">' +
           '<span class="disc-name">' + escapeHtml(p.name) + '</span>' +

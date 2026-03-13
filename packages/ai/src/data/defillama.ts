@@ -43,33 +43,24 @@ function cacheSet<T>(key: string, data: T): void {
 }
 
 // ---------------------------------------------------------------------------
-// Request queue — max 5 concurrent DeFiLlama HTTP requests
+// Sequential request queue — one DeFiLlama request at a time, 200ms gap
 // ---------------------------------------------------------------------------
 
-class RequestQueue {
-  private running = 0;
-  private readonly maxConcurrent = 5;
-  private readonly waiters: Array<() => void> = [];
+let _fetchQueue: Promise<unknown> = Promise.resolve();
+const FETCH_DELAY_MS = 200;
 
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.running >= this.maxConcurrent) {
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    }
-    this.running++;
-    try {
-      return await fn();
-    } finally {
-      this.running--;
-      const next = this.waiters.shift();
-      if (next) next();
-    }
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-const queue = new RequestQueue();
-
 async function queuedFetch(url: string): Promise<Response> {
-  return queue.run(() => fetch(url));
+  const job = _fetchQueue.then(async () => {
+    const res = await fetch(url);
+    await sleep(FETCH_DELAY_MS);
+    return res;
+  });
+  _fetchQueue = job.catch(() => {}); // keep chain alive on error
+  return job;
 }
 
 // ---------------------------------------------------------------------------

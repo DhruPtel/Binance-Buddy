@@ -7,7 +7,7 @@
 // =============================================================================
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve } from 'path';
 import type { BraveSearchResult } from '@binancebuddy/core';
 
 const BRAVE_WEB_URL = 'https://api.search.brave.com/res/v1/web/search';
