@@ -365,7 +365,8 @@ export type ApiService =
   | 'defi_llama'
   | 'ankr'
   | 'quicknode'
-  | 'coingecko';
+  | 'coingecko'
+  | 'brave';
 
 export interface ApiKeyRecord {
   service: ApiService;
@@ -373,6 +374,118 @@ export interface ApiKeyRecord {
   addedAt: number;
   lastUsed: number;
   capabilities: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 Research — Protocol & Deep Dive Types
+// ---------------------------------------------------------------------------
+
+export type ProtocolCategory = 'dex' | 'lending' | 'lp' | 'yield' | 'other';
+
+/** Raw pool record from DeFiLlama /yields/pools */
+export interface DefiLlamaPool {
+  pool: string;             // pool UUID
+  chain: string;
+  project: string;          // protocol slug
+  symbol: string;           // e.g. "CAKE-BNB"
+  tvlUsd: number;
+  apy: number;
+  apyBase: number | null;
+  apyReward: number | null;
+  il7d: number | null;      // 7-day impermanent loss %
+  volumeUsd1d: number | null;
+  underlyingTokens: string[] | null;
+}
+
+/** One pool in a deep dive — 5 max, top 3 isHighlighted=true */
+export interface PoolOpportunity {
+  poolId: string;
+  symbol: string;
+  apy: number;
+  apyBase: number;
+  apyReward: number;
+  tvlUsd: number;
+  ilRisk: 'none' | 'low' | 'medium' | 'high';
+  poolType: 'lp' | 'lending' | 'staking' | 'yield';
+  underlyingTokens: string[];
+  isHighlighted: boolean;   // true = "Best Opportunity" (top 3), false = "Other Pool"
+}
+
+/** Dataset within a chart */
+export interface ChartDataset {
+  label: string;
+  data: number[];
+  color: string;
+}
+
+/** Chart config returned as JSON from the API, rendered client-side via Chart.js */
+export interface ChartConfig {
+  title: string;
+  type: 'line' | 'bar';
+  labels: string[];
+  datasets: ChartDataset[];
+}
+
+/** Risk summary for a protocol */
+export interface ProtocolRisk {
+  isAudited: boolean;
+  contractVerified: boolean;
+  tvlTrend: 'growing' | 'stable' | 'declining';
+  ageMonths: number;
+  liquidityDepth: 'deep' | 'moderate' | 'shallow';
+  flags: string[];
+}
+
+/** Full deep dive report returned by GET /api/research/protocol/:slug */
+export interface DeepDiveReport {
+  protocolSlug: string;
+  protocolName: string;
+  category: ProtocolCategory;
+  tvlUsd: number;
+  volume24h: number;
+  generatedAt: number;
+  pools: PoolOpportunity[];     // 3–5 entries; pools[0..2].isHighlighted = true
+  strategyBrief: string;        // Claude-generated or template fallback
+  charts: ChartConfig[];        // max 3: TVL history, APY history, Volume
+  risk: ProtocolRisk;
+}
+
+/** Entry in the protocol registry (persisted to data/protocol-registry.json) */
+export interface ProtocolEntry {
+  name: string;
+  slug: string;
+  category: ProtocolCategory;
+  chain: string;
+  tvlUsd: number;
+  volume24h: number;
+  website?: string;
+  contractAddresses: string[];
+  discoveredAt: number;
+  source: 'defillama' | 'brave' | 'manual';
+  verified: boolean;            // false = Brave-only find not confirmed on DeFiLlama
+  lastResearched: number | null;
+}
+
+/** Top protocols in a category — returned by GET /api/research/category/:name */
+export interface CategorySummary {
+  category: ProtocolCategory;
+  protocols: ProtocolEntry[];
+  lastUpdated: number;
+}
+
+/** Return type from POST /api/research/discover */
+export interface DiscoveryResult {
+  newProtocols: ProtocolEntry[];
+  totalScanned: number;
+  lastRunAt: number;
+}
+
+/** Brave Search API result */
+export interface BraveSearchResult {
+  title: string;
+  url: string;
+  description: string;
+  age?: string;
 }
 
 // ---------------------------------------------------------------------------
