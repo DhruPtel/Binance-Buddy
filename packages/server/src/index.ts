@@ -1523,11 +1523,13 @@ function loadCategoryProtocols(category) {
       d.protocols.forEach(function(p) {
         var apyStr = (p.bestApy != null && p.bestApy > 0) ? p.bestApy.toFixed(1) + '%' : '—';
         var apyColor = (p.bestApy != null && p.bestApy >= 5) ? 'var(--green)' : 'var(--text-primary)';
+        var volStr = (p.poolVolume24h != null && p.poolVolume24h > 0) ? formatTvl(p.poolVolume24h) : '—';
         html += '<div class="proto-row">' +
           '<span class="proto-name">' + escapeHtml(p.name) + '</span>' +
           '<div class="proto-meta">' +
             '<span><span class="label">TVL</span><span class="value">' + formatTvl(p.tvlUsd) + '</span></span>' +
             '<span><span class="label">Best APY</span><span class="value" style="color:' + apyColor + '">' + apyStr + '</span></span>' +
+            '<span><span class="label">24h Vol</span><span class="value">' + volStr + '</span></span>' +
           '</div>' +
           '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\\'' + escapeHtml(p.slug) + '\\')">Dive →</button>' +
           '</div>';
@@ -1612,7 +1614,7 @@ function renderDeepDive(report) {
 
   // Strategy brief — render markdown bold (**text**) as <strong> tags
   var briefText = report.strategyBrief || 'No strategy brief available.';
-  var briefHtml = escapeHtml(briefText).replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>');
+  var briefHtml = escapeHtml(briefText).replace(/\\*\\*([^*]+)\\*\\*/g, '<strong style="color:var(--text-primary)">$1</strong>');
   document.getElementById('deepdive-brief').innerHTML = briefHtml;
 
   // Charts — all data comes from API JSON, rendered by renderChart()

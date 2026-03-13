@@ -299,8 +299,12 @@ function classifyPoolType(pool: DefiLlamaPool): PoolOpportunity['poolType'] {
   return 'yield';
 }
 
+const MIN_POOL_TVL = 10_000;
+const NON_ASCII_RE = /[^\x20-\x7E]/;
+
 function buildPoolOpportunities(pools: DefiLlamaPool[]): PoolOpportunity[] {
-  return pools.slice(0, 5).map((pool, index) => ({
+  const filtered = pools.filter((p) => p.tvlUsd >= MIN_POOL_TVL && !NON_ASCII_RE.test(p.symbol));
+  return filtered.slice(0, 5).map((pool, index) => ({
     poolId: pool.pool,
     symbol: pool.symbol,
     apy: pool.apy,
@@ -590,19 +594,25 @@ export async function researchCategory(category: ProtocolCategory): Promise<Cate
     fetchYieldPools(),
   ]);
 
-  // Build max APY lookup by project slug (single pass over cached pool list)
+  // Single pass over cached pool list: compute max APY and sum volume per project
   const maxApyByProject = new Map<string, number>();
+  const volumeByProject = new Map<string, number>();
   for (const pool of allPools) {
-    const current = maxApyByProject.get(pool.project);
-    if (current === undefined || pool.apy > current) {
-      maxApyByProject.set(pool.project, pool.apy);
+    // Only consider pools with meaningful TVL and ASCII symbols
+    if (pool.tvlUsd < MIN_POOL_TVL || NON_ASCII_RE.test(pool.symbol)) continue;
+    const slug = pool.project;
+    const currentApy = maxApyByProject.get(slug);
+    if (currentApy === undefined || pool.apy > currentApy) {
+      maxApyByProject.set(slug, pool.apy);
     }
+    volumeByProject.set(slug, (volumeByProject.get(slug) ?? 0) + (pool.volumeUsd1d ?? 0));
   }
 
-  // Enrich each protocol with its best APY
+  // Enrich each protocol with best APY and pool-aggregated volume
   const enriched = protocols.map((p) => ({
     ...p,
     bestApy: maxApyByProject.get(p.slug) ?? undefined,
+    poolVolume24h: volumeByProject.get(p.slug) ?? undefined,
   }));
 
   const summary: CategorySummary = { category, protocols: enriched, lastUpdated: Date.now() };
@@ -640,8 +650,13 @@ export async function researchProtocol(
   const pools = buildPoolOpportunities(rawPools);
 
   // Determine category from registry or infer
-  const registryEntry = (await import('./discovery.js')).getRegistryEntry(slug);
-  const category: ProtocolCategory = registryEntry?.category ?? 'other';
+  let category: ProtocolCategory = 'other';
+  try {
+    const registryEntry = (await import('./discovery.js')).getRegistryEntry(slug);
+    if (registryEntry?.category) category = registryEntry.category;
+  } catch {
+    // Discovery module not loaded — fall back to 'other' for chart selection
+  }
 
   // Build category-specific charts
   const charts = selectChartsForCategory(category, tvlHistory, histories, rawPools);

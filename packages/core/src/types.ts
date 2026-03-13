@@ -459,6 +459,7 @@ export interface ProtocolEntry {
   tvlUsd: number;
   volume24h: number;
   bestApy?: number;             // max APY across BSC yield pools for this protocol
+  poolVolume24h?: number;       // sum of volumeUsd1d across BSC yield pools for this protocol
   website?: string;
   contractAddresses: string[];
   discoveredAt: number;
