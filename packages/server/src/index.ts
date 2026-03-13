@@ -1521,11 +1521,13 @@ function loadCategoryProtocols(category) {
       }
       var html = '';
       d.protocols.forEach(function(p) {
+        var apyStr = (p.bestApy != null && p.bestApy > 0) ? p.bestApy.toFixed(1) + '%' : '—';
+        var apyColor = (p.bestApy != null && p.bestApy >= 5) ? 'var(--green)' : 'var(--text-primary)';
         html += '<div class="proto-row">' +
           '<span class="proto-name">' + escapeHtml(p.name) + '</span>' +
           '<div class="proto-meta">' +
             '<span><span class="label">TVL</span><span class="value">' + formatTvl(p.tvlUsd) + '</span></span>' +
-            '<span><span class="label">24h Vol</span><span class="value">' + formatTvl(p.volume24h) + '</span></span>' +
+            '<span><span class="label">Best APY</span><span class="value" style="color:' + apyColor + '">' + apyStr + '</span></span>' +
           '</div>' +
           '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\\'' + escapeHtml(p.slug) + '\\')">Dive →</button>' +
           '</div>';
@@ -1570,11 +1572,15 @@ function loadDeepDive(slug) {
     });
 }
 
-function renderPoolRow(pool) {
+function renderPoolRow(pool, protocolName) {
   var ilCls = pool.ilRisk === 'none' || pool.ilRisk === 'low' ? 'low' : pool.ilRisk === 'medium' ? 'medium' : 'high';
   var ilLabel = pool.ilRisk === 'none' ? 'No IL' : 'IL: ' + pool.ilRisk;
+  var displaySymbol = pool.symbol;
+  if (displaySymbol.length <= 2 && protocolName) {
+    displaySymbol = protocolName + ': ' + displaySymbol;
+  }
   return '<div class="pool-row ' + (pool.isHighlighted ? 'highlighted' : 'other') + '">' +
-    '<span class="pool-symbol">' + escapeHtml(pool.symbol) + '</span>' +
+    '<span class="pool-symbol">' + escapeHtml(displaySymbol) + '</span>' +
     '<span class="pool-apy">' + pool.apy.toFixed(1) + '%</span>' +
     '<span class="pool-tvl">' + formatTvl(pool.tvlUsd) + '</span>' +
     '<span class="pool-il ' + ilCls + '">' + ilLabel + '</span>' +
@@ -1590,21 +1596,24 @@ function renderDeepDive(report) {
   var highlighted = (report.pools || []).filter(function(p) { return p.isHighlighted; });
   var other = (report.pools || []).filter(function(p) { return !p.isHighlighted; });
 
+  var pName = report.protocolName || '';
   document.getElementById('deepdive-best').innerHTML = highlighted.length
-    ? highlighted.map(renderPoolRow).join('')
-    : '<div class="text-sec text-sm">No yield pools found for this protocol on BSC.</div>';
+    ? highlighted.map(function(p) { return renderPoolRow(p, pName); }).join('')
+    : '<div class="text-sec text-sm">No tracked yield pools on BSC — showing protocol-level data only.</div>';
 
   var otherHeader = document.getElementById('other-pools-header');
   if (other.length > 0) {
     otherHeader.style.display = 'block';
-    document.getElementById('deepdive-other').innerHTML = other.map(renderPoolRow).join('');
+    document.getElementById('deepdive-other').innerHTML = other.map(function(p) { return renderPoolRow(p, pName); }).join('');
   } else {
     otherHeader.style.display = 'none';
     document.getElementById('deepdive-other').innerHTML = '';
   }
 
-  // Strategy brief
-  document.getElementById('deepdive-brief').textContent = report.strategyBrief || 'No strategy brief available.';
+  // Strategy brief — render markdown bold (**text**) as <strong> tags
+  var briefText = report.strategyBrief || 'No strategy brief available.';
+  var briefHtml = escapeHtml(briefText).replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>');
+  document.getElementById('deepdive-brief').innerHTML = briefHtml;
 
   // Charts — all data comes from API JSON, rendered by renderChart()
   var chartsEl = document.getElementById('deepdive-charts');
