@@ -807,8 +807,8 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
 <!-- Main content -->
 <div class="main">
 
-  <!-- Row 1: Health | Buddy | Research Summary -->
-  <div class="grid-3">
+  <!-- Row 1: Health | Buddy -->
+  <div class="grid-2">
 
     <!-- Health -->
     <div class="card">
@@ -839,52 +839,30 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
       <div class="buddy-stat-row"><span class="text-sec">Trades</span><span id="buddy-trades">0</span></div>
       <div class="buddy-stat-row"><span class="text-sec">Trenches</span><span id="buddy-trenches" class="badge badge-red">🔒 Locked</span></div>
     </div>
-
-    <!-- Research summary -->
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <h2 style="margin:0">Research</h2>
-        <button class="btn btn-sec btn-sm" id="research-run-btn" onclick="runResearchCycle()">Run ↺</button>
-      </div>
-      <div id="research-summary">
-        <div class="text-sec text-sm">No report yet. Click Run ↺</div>
-      </div>
-    </div>
   </div>
 
-  <!-- Row 2: Chat (full-width) -->
-  <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <h2 style="margin:0">Agent Chat</h2>
-      <div style="display:flex;gap:8px;align-items:center">
-        <span id="chat-mode-badge" class="badge badge-green">Normal Mode</span>
-        <button class="btn btn-sec btn-sm" onclick="resetCB()">Reset CB</button>
-      </div>
-    </div>
-    <div id="cb-banner" class="cb-banner">⛔ Circuit breaker tripped — 3 consecutive failures. <button class="btn btn-sm btn-danger" onclick="resetCB()">Reset</button></div>
-    <div class="chat-messages" id="chat-messages">
-      <div class="msg msg-system"><div class="msg-bubble">Chat started. Say hi to your Buddy or try: "what tokens do I hold?" or "find farms"</div></div>
-    </div>
-    <div id="typing-indicator" style="display:none" class="typing-indicator">
-      Buddy is thinking<span class="typing-dot">.</span><span class="typing-dot">.</span><span class="typing-dot">.</span>
-    </div>
-    <div class="input-row" style="margin:0">
-      <input type="text" id="chat-input" placeholder="Talk to your Buddy..." onkeydown="if(event.key==='Enter')chatSend()" />
-      <button class="btn" id="chat-send-btn" onclick="chatSend()">Send →</button>
-    </div>
-  </div>
-
-  <!-- Row 3: Research Full | Trade -->
+  <!-- Row 2: Chat | Trade -->
   <div class="grid-2">
 
-    <!-- Research full -->
+    <!-- Chat -->
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <h2 style="margin:0">Research Report</h2>
-        <span id="research-age" class="text-sec text-sm"></span>
+        <h2 style="margin:0">Agent Chat</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="chat-mode-badge" class="badge badge-green">Normal Mode</span>
+          <button class="btn btn-sec btn-sm" onclick="resetCB()">Reset CB</button>
+        </div>
       </div>
-      <div id="research-full">
-        <div class="text-sec text-sm">No report loaded. Click Run ↺ in the Research panel above.</div>
+      <div id="cb-banner" class="cb-banner">⛔ Circuit breaker tripped — 3 consecutive failures. <button class="btn btn-sm btn-danger" onclick="resetCB()">Reset</button></div>
+      <div class="chat-messages" id="chat-messages">
+        <div class="msg msg-system"><div class="msg-bubble">Chat started. Say hi to your Buddy or try: "what tokens do I hold?" or "find farms"</div></div>
+      </div>
+      <div id="typing-indicator" style="display:none" class="typing-indicator">
+        Buddy is thinking<span class="typing-dot">.</span><span class="typing-dot">.</span><span class="typing-dot">.</span>
+      </div>
+      <div class="input-row" style="margin:0">
+        <input type="text" id="chat-input" placeholder="Talk to your Buddy..." onkeydown="if(event.key==='Enter')chatSend()" />
+        <button class="btn" id="chat-send-btn" onclick="chatSend()">Send →</button>
       </div>
     </div>
 
@@ -925,6 +903,23 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
         <button class="btn" style="flex:2" onclick="tradeExecute()">Confirm Swap ✓</button>
       </div>
       <div class="tx-result" id="tx-result"></div>
+    </div>
+  </div>
+
+  <!-- Row 3: Research Report (merged summary + full) -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0">Research Report</h2>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="research-age" class="text-sec text-sm"></span>
+        <button class="btn btn-sec btn-sm" id="research-run-btn" onclick="runResearchCycle()">Run ↺</button>
+      </div>
+    </div>
+    <div id="research-summary">
+      <div class="text-sec text-sm">No report yet. Click Run ↺</div>
+    </div>
+    <div id="research-full" style="margin-top:12px">
+      <div class="text-sec text-sm">No report loaded.</div>
     </div>
   </div>
 
@@ -1691,7 +1686,7 @@ function renderScan(data) {
 
 function statCard(label, value) {
   return '<div style="background:var(--bg-tertiary);border-radius:var(--radius-sm);padding:8px;text-align:center">' +
-    '<div style="font-size:14px;font-weight:600;font-family:\'Space Grotesk\',sans-serif">' + escapeHtml(String(value)) + '</div>' +
+    '<div style="font-size:14px;font-weight:600;font-family:\\'Space Grotesk\\',sans-serif">' + escapeHtml(String(value)) + '</div>' +
     '<div class="text-sec text-sm">' + escapeHtml(label) + '</div></div>';
 }
 
