@@ -1,8 +1,27 @@
 # Binance Buddy — Progress
 
 ## Current State
-All 7 build days COMPLETE. 8 packages fully built and typechecking clean.
-19/19 tests pass. Extension built to dist/. Next: Day 8 — Polish, README, demo video, submission.
+Phase 2 Research complete. 8 packages fully built and typechecking clean.
+19/19 tests pass. Extension built to dist/.
+
+## Phase 2 Research (Mar 13)
+- core/types.ts: 10 new Phase 2 types — ProtocolCategory, DefiLlamaPool, PoolOpportunity,
+  ChartConfig, ProtocolRisk, DeepDiveReport, ProtocolEntry, CategorySummary,
+  DiscoveryResult, BraveSearchResult; 'brave' added to ApiService union
+- ai/data/defillama.ts: DeFiLlama client — per-endpoint 15min cache, 5-concurrent request
+  queue (semaphore), normalizeChain() fixes 'Binance'/'BSC' ambiguity, BSC pool list cached
+  once per 15min and shared across all callers
+- ai/data/brave-search.ts: Brave Search client — 1500/month hard cap, counter persisted to
+  data/brave-usage.json, returns [] gracefully when key absent or cap hit
+- ai/discovery.ts: Protocol discovery — DeFiLlama scan + Brave web search; Brave results
+  only verified=true if also on DeFiLlama; unverified entries blocked from auto-research
+- ai/research.ts: Added researchCategory() (15min cache) + researchProtocol() (30min cache);
+  Claude Haiku strategy brief with 10/day hard cap + template fallback; 5-pool deep dives
+  (top 3 highlighted as Best Opportunities, bottom 2 as Other Pools)
+- server/index.ts: 5 new endpoints (categories, category/:name, protocol/:slug, discover,
+  discoveries); research panel rewritten with tab nav (DEX/Lending/LP/Yield/Discover);
+  Chart.js v4.4.0 via CDN; single reusable renderChart(canvasId, config) function;
+  all chart data served as ChartConfig JSON from API — no hardcoded configs in HTML
 
 ## Quick Module Map
 
