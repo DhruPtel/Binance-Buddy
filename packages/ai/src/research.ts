@@ -791,11 +791,17 @@ async function generateDeepAnalysis(
   category: string,
   queryResults: DuneQueryResult[],
 ): Promise<string> {
+  const totalRows = queryResults.reduce((s, q) => s + q.rows.length, 0);
+
+  // Don't call Claude with empty data — return a clear explanation instead
+  if (totalRows === 0) {
+    return `No on-chain data returned from Dune queries for ${protocolName}. The protocol's contract address may not be indexed in Dune's BSC tables, or the query templates may need updating for this protocol.`;
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || !canCallClaudeForBrief()) {
     // Template fallback
     const queryCount = queryResults.length;
-    const totalRows = queryResults.reduce((s, q) => s + q.rows.length, 0);
     return `Deep research on ${protocolName} (${category}): ${queryCount} queries returned ${totalRows} rows of on-chain data. Review the tables below for protocol activity, flows, and concentration metrics.`;
   }
 
