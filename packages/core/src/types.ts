@@ -462,8 +462,9 @@ export interface ProtocolEntry {
   chain: string;
   tvlUsd: number;
   volume24h: number;
-  bestApy?: number;             // max APY across BSC yield pools for this protocol
+  bestApy?: number;             // max apyBase across BSC yield pools for this protocol
   poolVolume24h?: number;       // sum of volumeUsd1d across BSC yield pools for this protocol
+  hasVerifiedPools?: boolean;   // true if ≥1 pool with TVL >= $50k and ASCII symbol
   website?: string;
   contractAddresses: string[];
   discoveredAt: number;
@@ -475,7 +476,8 @@ export interface ProtocolEntry {
 /** Top protocols in a category — returned by GET /api/research/category/:name */
 export interface CategorySummary {
   category: ProtocolCategory;
-  protocols: ProtocolEntry[];
+  protocols: ProtocolEntry[];             // hasVerifiedPools === true
+  limitedDataProtocols: ProtocolEntry[];  // hasVerifiedPools === false (TVL but no qualifying pools)
   lastUpdated: number;
 }
 

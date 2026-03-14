@@ -301,16 +301,22 @@ function classifyPoolType(pool: DefiLlamaPool): PoolOpportunity['poolType'] {
 }
 
 const MIN_POOL_TVL = 10_000;
+const MIN_VERIFIED_TVL = 50_000;
+const APY_CAP = 500;
 const NON_ASCII_RE = /[^\x20-\x7E]/;
+
+function capApy(apy: number): number {
+  return Math.min(apy, APY_CAP);
+}
 
 function buildPoolOpportunities(pools: DefiLlamaPool[]): PoolOpportunity[] {
   const filtered = pools.filter((p) => p.tvlUsd >= MIN_POOL_TVL && !NON_ASCII_RE.test(p.symbol));
   return filtered.slice(0, 5).map((pool, index) => ({
     poolId: pool.pool,
     symbol: pool.symbol,
-    apy: pool.apy,
-    apyBase: pool.apyBase ?? 0,
-    apyReward: pool.apyReward ?? 0,
+    apy: capApy(pool.apy),
+    apyBase: capApy(pool.apyBase ?? 0),
+    apyReward: capApy(pool.apyReward ?? 0),
     tvlUsd: pool.tvlUsd,
     ilRisk: classifyIlRisk(pool),
     poolType: classifyPoolType(pool),
@@ -594,28 +600,42 @@ export async function researchCategory(category: ProtocolCategory): Promise<Cate
     fetchYieldPools(),
   ]);
 
-  // Single pass over cached pool list: compute max APY and sum volume per project
+  // Single pass: compute bestApy (apyBase preferred), volume, and hasVerifiedPools per project.
+  // Bug fix: use pool.apyBase ?? pool.apy (organic yield first) instead of pool.apy (total).
   const maxApyByProject = new Map<string, number>();
   const volumeByProject = new Map<string, number>();
+  const verifiedByProject = new Map<string, boolean>();
   for (const pool of allPools) {
-    // Only consider pools with meaningful TVL and ASCII symbols
-    if (pool.tvlUsd < MIN_POOL_TVL || NON_ASCII_RE.test(pool.symbol)) continue;
+    if (NON_ASCII_RE.test(pool.symbol)) continue;
     const slug = pool.project;
+    // hasVerifiedPools requires TVL >= $50k
+    if (pool.tvlUsd >= MIN_VERIFIED_TVL) {
+      verifiedByProject.set(slug, true);
+    }
+    // bestApy and volume only from pools meeting the deep-dive floor ($10k)
+    if (pool.tvlUsd < MIN_POOL_TVL) continue;
+    const organicApy = pool.apyBase ?? pool.apy;
     const currentApy = maxApyByProject.get(slug);
-    if (currentApy === undefined || pool.apy > currentApy) {
-      maxApyByProject.set(slug, pool.apy);
+    if (currentApy === undefined || organicApy > currentApy) {
+      maxApyByProject.set(slug, organicApy);
     }
     volumeByProject.set(slug, (volumeByProject.get(slug) ?? 0) + (pool.volumeUsd1d ?? 0));
   }
 
-  // Enrich each protocol with best APY and pool-aggregated volume
+  // Enrich each protocol and split into verified / limited-data lists
   const enriched = protocols.map((p) => ({
     ...p,
     bestApy: maxApyByProject.get(p.slug) ?? undefined,
     poolVolume24h: volumeByProject.get(p.slug) ?? undefined,
+    hasVerifiedPools: verifiedByProject.get(p.slug) ?? false,
   }));
 
-  const summary: CategorySummary = { category, protocols: enriched, lastUpdated: Date.now() };
+  const summary: CategorySummary = {
+    category,
+    protocols: enriched.filter((p) => p.hasVerifiedPools),
+    limitedDataProtocols: enriched.filter((p) => !p.hasVerifiedPools),
+    lastUpdated: Date.now(),
+  };
 
   categoryCache.set(category, { summary, expiresAt: Date.now() + CATEGORY_CACHE_TTL });
   return summary;
