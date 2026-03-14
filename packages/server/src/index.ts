@@ -921,6 +921,18 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .badge-unverified { background:rgba(255,140,0,0.1); color:var(--orange); padding:2px 6px; border-radius:4px; font-size:10px; }
   .back-btn { display:inline-flex; align-items:center; gap:4px; color:var(--text-sec); font-size:12px; cursor:pointer; margin-bottom:10px; }
   .back-btn:hover { color:var(--text-primary); }
+  .deep-research-panel { margin-top:16px; border-top:1px solid var(--bg-tertiary); padding-top:12px; }
+  .deep-research-panel .section-header { color:var(--gold); }
+  .dr-loading { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-sec); padding:12px 0; }
+  .dr-credits { font-size:10px; color:var(--text-sec); margin-top:8px; }
+  .dr-credits .value { color:var(--text-primary); font-weight:600; }
+  .dr-table-wrap { overflow-x:auto; margin-bottom:12px; }
+  .dr-table { width:100%; font-size:11px; border-collapse:collapse; }
+  .dr-table th { text-align:left; padding:4px 8px; color:var(--text-sec); border-bottom:1px solid var(--bg-tertiary); font-weight:500; }
+  .dr-table td { padding:4px 8px; color:var(--text-primary); border-bottom:1px solid rgba(255,255,255,0.03); }
+  .dr-table tr:hover td { background:rgba(255,255,255,0.02); }
+  .dr-query-title { font-size:12px; font-weight:600; color:var(--text-primary); margin:10px 0 4px; }
+  .dr-query-time { font-size:10px; color:var(--text-sec); margin-bottom:6px; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
@@ -1107,6 +1119,15 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
 
       <div class="section-header">Risk Assessment</div>
       <div id="deepdive-risk" class="risk-badges"></div>
+
+      <div style="margin-top:12px">
+        <button class="btn btn-sec btn-sm" id="deep-research-btn" onclick="loadDeepResearch()" style="display:none">Deep Research</button>
+      </div>
+      <div id="deep-research-panel" class="deep-research-panel" style="display:none">
+        <div class="section-header">DEEP RESEARCH — On-Chain Analysis</div>
+        <div id="dr-content"></div>
+        <div id="dr-credits" class="dr-credits"></div>
+      </div>
     </div>
 
     <!-- Discovery view -->
@@ -1582,7 +1603,10 @@ function loadCategoryProtocols(category) {
 // ---------------------------------------------------------------------------
 // Deep dive
 // ---------------------------------------------------------------------------
+var _deepDiveSlug = '';
+
 function loadDeepDive(slug) {
+  _deepDiveSlug = slug;
   document.getElementById('research-view-category').style.display = 'none';
   document.getElementById('research-view-deepdive').style.display = 'block';
   document.getElementById('deepdive-title').textContent = slug.charAt(0).toUpperCase() + slug.slice(1).replace(/-/g,' ') + ' — Deep Dive';
@@ -1591,6 +1615,10 @@ function loadDeepDive(slug) {
   document.getElementById('deepdive-brief').textContent = 'Loading strategy brief...';
   document.getElementById('deepdive-charts').innerHTML = '';
   document.getElementById('deepdive-risk').innerHTML = '';
+  document.getElementById('deep-research-panel').style.display = 'none';
+  document.getElementById('deep-research-btn').style.display = 'inline-flex';
+  document.getElementById('dr-content').innerHTML = '';
+  document.getElementById('dr-credits').innerHTML = '';
 
   var walletParam = _wallet ? '?wallet=' + encodeURIComponent(_wallet) : '';
   log('RESEARCH', 'Loading deep dive: ' + slug);
@@ -1715,6 +1743,127 @@ function renderDeepDive(report) {
     });
   }
   document.getElementById('deepdive-risk').innerHTML = badges;
+}
+
+// ---------------------------------------------------------------------------
+// Deep Research (Layer 3)
+// ---------------------------------------------------------------------------
+function loadDeepResearch() {
+  if (!_deepDiveSlug) return;
+  var btn = document.getElementById('deep-research-btn');
+  btn.style.display = 'none';
+  var panel = document.getElementById('deep-research-panel');
+  panel.style.display = 'block';
+  var content = document.getElementById('dr-content');
+  content.innerHTML = '<div class="dr-loading"><span class="spinner"></span>Querying on-chain data... ~15s</div>';
+  document.getElementById('dr-credits').innerHTML = '';
+  log('RESEARCH', 'Starting deep research: ' + _deepDiveSlug);
+
+  fetch('/api/research/deep/' + encodeURIComponent(_deepDiveSlug))
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || r.statusText); });
+      return r.json();
+    })
+    .then(function(result) {
+      renderDeepResearch(result);
+      log('RESEARCH', 'Deep research complete: ' + result.queries.length + ' queries, ' + result.creditsUsed + ' credits');
+    })
+    .catch(function(e) {
+      content.innerHTML = '<div style="color:var(--red);font-size:12px">Deep research failed: ' + escapeHtml(e.message) + '</div>';
+      btn.style.display = 'inline-flex';
+      log('ERROR', 'Deep research failed: ' + e.message);
+    });
+}
+
+function renderDuneTable(query) {
+  if (!query.rows || query.rows.length === 0) {
+    return '<div class="text-sec text-sm">No results.</div>';
+  }
+  var cols = query.columns && query.columns.length > 0 ? query.columns : Object.keys(query.rows[0]);
+  var html = '<div class="dr-table-wrap"><table class="dr-table"><thead><tr>';
+  cols.forEach(function(c) { html += '<th>' + escapeHtml(c) + '</th>'; });
+  html += '</tr></thead><tbody>';
+  var maxRows = Math.min(query.rows.length, 20);
+  for (var i = 0; i < maxRows; i++) {
+    html += '<tr>';
+    cols.forEach(function(c) {
+      var val = query.rows[i][c];
+      var display = val == null ? '—' : typeof val === 'number' ? val.toLocaleString(undefined, {maximumFractionDigits: 4}) : String(val);
+      html += '<td>' + escapeHtml(display) + '</td>';
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  if (query.rows.length > 20) {
+    html += '<div class="text-sec" style="font-size:10px">Showing 20 of ' + query.rows.length + ' rows</div>';
+  }
+  return html;
+}
+
+function renderDeepResearch(result) {
+  var content = document.getElementById('dr-content');
+  var html = '';
+
+  // Analysis summary
+  if (result.analysis) {
+    html += '<div class="strategy-brief text-sec text-sm" style="margin-bottom:12px">' +
+      escapeHtml(result.analysis).replace(/\\*\\*([^*]+)\\*\\*/g, '<strong style="color:var(--text-primary)">$1</strong>') +
+      '</div>';
+  }
+
+  // Charts from deep research
+  if (result.charts && result.charts.length > 0) {
+    html += '<div class="charts-row">';
+    result.charts.forEach(function(chartConfig, i) {
+      var canvasId = 'dr-chart-' + i;
+      var descHtml = chartConfig.description ? '<div class="chart-desc">' + escapeHtml(chartConfig.description) + '</div>' : '';
+      html += '<div class="chart-wrap"><div class="chart-title">' + escapeHtml(chartConfig.title) + '</div>' +
+        '<canvas id="' + canvasId + '" height="120"></canvas>' + descHtml + '</div>';
+    });
+    html += '</div>';
+  }
+
+  // Query result tables
+  if (result.queries && result.queries.length > 0) {
+    result.queries.forEach(function(q) {
+      html += '<div class="dr-query-title">' + escapeHtml(q.title) + '</div>';
+      html += '<div class="dr-query-time">' + (q.executionTimeMs / 1000).toFixed(1) + 's · ' + q.creditsCost + ' credits · ' + (q.rows ? q.rows.length : 0) + ' rows</div>';
+      html += renderDuneTable(q);
+    });
+  }
+
+  // Holder distribution
+  if (result.holderDistribution && result.holderDistribution.topHolders) {
+    html += '<div class="dr-query-title">Token Holder Distribution</div>';
+    html += '<div class="dr-query-time">' + result.holderDistribution.totalHolders + ' total holders</div>';
+    html += '<div class="dr-table-wrap"><table class="dr-table"><thead><tr><th>Address</th><th>Balance</th><th>%</th></tr></thead><tbody>';
+    result.holderDistribution.topHolders.forEach(function(h) {
+      html += '<tr><td style="font-family:var(--font-mono);font-size:10px">' + escapeHtml(h.address) + '</td>' +
+        '<td>' + escapeHtml(h.balance) + '</td>' +
+        '<td>' + (h.percentage != null ? h.percentage.toFixed(2) + '%' : '—') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  if (!result.queries?.length && !result.charts?.length && !result.analysis) {
+    html = '<div class="text-sec text-sm">No deep research data returned. Ensure DUNE_API_KEY is configured.</div>';
+  }
+
+  content.innerHTML = html;
+
+  // Render charts after DOM update
+  if (result.charts && result.charts.length > 0) {
+    setTimeout(function() {
+      result.charts.forEach(function(chartConfig, i) {
+        renderChart('dr-chart-' + i, chartConfig);
+      });
+    }, 0);
+  }
+
+  // Credit counter
+  var creditsEl = document.getElementById('dr-credits');
+  creditsEl.innerHTML = 'Credits used: <span class="value">' + (result.creditsUsed || 0) + '</span> · ' +
+    'Remaining this month: <span class="value">' + (result.creditsRemaining != null ? result.creditsRemaining : '?') + '</span>';
 }
 
 // ---------------------------------------------------------------------------
