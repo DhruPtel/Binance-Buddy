@@ -421,6 +421,7 @@ export interface ChartDataset {
 /** Chart config returned as JSON from the API, rendered client-side via Chart.js */
 export interface ChartConfig {
   title: string;
+  description: string;  // explains what this chart means for decisions
   type: 'line' | 'bar';
   labels: string[];
   datasets: ChartDataset[];

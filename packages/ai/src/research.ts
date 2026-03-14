@@ -339,6 +339,7 @@ function buildTvlChart(
   const recent = tvlHistory.slice(-30);
   return {
     title: 'TVL (30d)',
+    description: 'Total value locked over 30 days. Declining TVL signals loss of confidence; stable TVL with rising APY means fewer depositors competing for the same rewards.',
     type: 'line',
     labels: recent.map((e) => formatChartDate(e.date, true)),
     datasets: [{
@@ -353,6 +354,7 @@ function buildApyBaseChart(
   histories: PoolHistoryEntry[][],
   pools: DefiLlamaPool[],
   title: string,
+  description: string,
 ): ChartConfig | null {
   const colors = ['#F0B90B', '#0ECB81', '#1890FF'];
   const datasets = histories.slice(0, 3).map((history, i) => ({
@@ -362,7 +364,7 @@ function buildApyBaseChart(
   }));
   if (datasets.every((ds) => ds.data.every((v) => v === 0))) return null;
   const labels = histories[0]?.map((e) => formatChartDate(e.timestamp)) ?? [];
-  return { title, type: 'line', labels, datasets };
+  return { title, description, type: 'line', labels, datasets };
 }
 
 function buildApyRewardChart(
@@ -377,7 +379,13 @@ function buildApyRewardChart(
   }));
   if (datasets.every((ds) => ds.data.every((v) => v === 0))) return null;
   const labels = histories[0]?.map((e) => formatChartDate(e.timestamp)) ?? [];
-  return { title: 'Reward APY (30d)', type: 'line', labels, datasets };
+  return {
+    title: 'Reward APY (30d)',
+    description: 'Incentive tokens distributed to depositors on top of organic yield. High reward APY is typically unsustainable — watch for declining trends as incentive programs wind down.',
+    type: 'line',
+    labels,
+    datasets,
+  };
 }
 
 function buildIlChart(
@@ -393,7 +401,13 @@ function buildIlChart(
     color: colors[i] ?? '#888888',
   }));
   const labels = histories[0]?.map((e) => formatChartDate(e.timestamp)) ?? [];
-  return { title: 'IL Estimate 7d (30d)', type: 'line', labels, datasets };
+  return {
+    title: 'IL Estimate 7d (30d)',
+    description: 'Impermanent loss over rolling 7-day windows. Larger negative values mean the two pool assets have diverged significantly — holding them separately would have been more profitable.',
+    type: 'line',
+    labels,
+    datasets,
+  };
 }
 
 function buildVolumeChart(pools: DefiLlamaPool[]): ChartConfig | null {
@@ -401,6 +415,7 @@ function buildVolumeChart(pools: DefiLlamaPool[]): ChartConfig | null {
   if (top5.length === 0) return null;
   return {
     title: '24h Volume by Pool',
+    description: 'Daily trading volume across pools. Higher volume relative to TVL means LPs earn more in fees. Low volume with high TVL suggests capital sitting idle.',
     type: 'bar',
     labels: top5.map((p) => p.symbol),
     datasets: [{
@@ -416,6 +431,7 @@ function buildPoolTvlChart(pools: DefiLlamaPool[]): ChartConfig | null {
   if (top5.length === 0) return null;
   return {
     title: 'Pool TVL Comparison',
+    description: 'Relative liquidity depth across pools. Larger pools have lower slippage and are safer for larger positions.',
     type: 'bar',
     labels: top5.map((p) => p.symbol),
     datasets: [{
@@ -444,7 +460,8 @@ function selectChartsForCategory(
 
   switch (category) {
     case 'lending': {
-      tryPush(buildApyBaseChart(poolHistories, pools, 'Supply APY (30d)'));
+      tryPush(buildApyBaseChart(poolHistories, pools, 'Supply APY (30d)',
+        'Organic yield earned by lenders from borrower interest. Stable trends indicate sustainable rates; sharp rises may signal high borrow demand or rate model changes.'));
       tryPush(buildApyRewardChart(poolHistories, pools));
       if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
       break;
@@ -452,17 +469,20 @@ function selectChartsForCategory(
     case 'liquidity': {
       tryPush(buildVolumeChart(pools));
       if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
-      tryPush(buildApyBaseChart(poolHistories, pools, 'Fee APY (30d)'));
+      tryPush(buildApyBaseChart(poolHistories, pools, 'Fee APY (30d)',
+        'Trading fees earned by liquidity providers from swaps. Higher volume relative to TVL means more fee income. Sudden spikes often follow high-volatility market events.'));
       break;
     }
     case 'yield': {
-      tryPush(buildApyBaseChart(poolHistories, pools, 'APY Base+Reward (30d)'));
+      tryPush(buildApyBaseChart(poolHistories, pools, 'APY Base+Reward (30d)',
+        'Base yield from the underlying vault strategy. Unlike reward APY, this is more sustainable as it comes from real protocol activity rather than token incentives.'));
       tryPush(buildIlChart(poolHistories, pools));
       if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
       break;
     }
     default: {
-      tryPush(buildApyBaseChart(poolHistories, pools, 'APY (30d)'));
+      tryPush(buildApyBaseChart(poolHistories, pools, 'APY (30d)',
+        'Yield rate over 30 days. Where available, shows organic base APY — a more reliable indicator of sustainable returns than total APY including incentives.'));
       if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
       tryPush(buildPoolTvlChart(pools));
       break;
