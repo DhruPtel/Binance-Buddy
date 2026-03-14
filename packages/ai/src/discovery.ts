@@ -37,6 +37,18 @@ let registry = new Map<string, ProtocolEntry>();
 let lastRunAt: number | null = null;
 
 /**
+ * Migrate old category values ('dex', 'lp') to 'liquidity'.
+ * Idempotent — safe to run on every load.
+ */
+function migrateRegistryCategories(entries: ProtocolEntry[]): ProtocolEntry[] {
+  const remap: Record<string, ProtocolCategory> = { dex: 'liquidity', lp: 'liquidity' };
+  return entries.map((e) => {
+    const mapped = remap[e.category];
+    return mapped ? { ...e, category: mapped } : e;
+  });
+}
+
+/**
  * Load registry from disk into memory.
  * Called once at module init and on demand.
  */
@@ -44,8 +56,13 @@ export function loadRegistry(): void {
   const path = getRegistryPath();
   try {
     if (existsSync(path)) {
-      const entries = JSON.parse(readFileSync(path, 'utf8')) as ProtocolEntry[];
+      const raw = JSON.parse(readFileSync(path, 'utf8')) as ProtocolEntry[];
+      const entries = migrateRegistryCategories(raw);
       registry = new Map(entries.map((e) => [e.slug, e]));
+      // Persist migration if any values changed
+      if (raw.some((e) => e.category === 'dex' || e.category === 'lp')) {
+        saveRegistry();
+      }
     }
   } catch (err) {
     console.error('[discovery] Failed to load registry:', err);

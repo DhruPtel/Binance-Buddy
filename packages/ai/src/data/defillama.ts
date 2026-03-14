@@ -93,10 +93,9 @@ export function categorizeProtocol(protocol: { category?: string; name?: string 
   const cat = (protocol.category ?? '').toLowerCase();
   const name = (protocol.name ?? '').toLowerCase();
 
-  if (cat.includes('dex') || cat.includes('amm') || name.includes('swap')) return 'dex';
   if (cat.includes('lend') || cat.includes('borrow') || cat.includes('money market')) return 'lending';
   if (cat.includes('yield') || cat.includes('aggregator') || cat.includes('optimizer')) return 'yield';
-  if (cat.includes('farm') || cat.includes('liquidity') || cat.includes('lp')) return 'lp';
+  if (cat.includes('dex') || cat.includes('amm') || name.includes('swap') || cat.includes('farm') || cat.includes('liquidity') || cat.includes('lp')) return 'liquidity';
   return 'other';
 }
 

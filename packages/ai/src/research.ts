@@ -436,19 +436,18 @@ function selectChartsForCategory(
   };
 
   switch (category) {
-    case 'dex': {
-      tryPush(buildVolumeChart(pools));
-      if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
-      tryPush(buildApyBaseChart(poolHistories, pools, 'Fee APY (30d)'));
-      break;
-    }
     case 'lending': {
       tryPush(buildApyBaseChart(poolHistories, pools, 'Supply APY (30d)'));
       tryPush(buildApyRewardChart(poolHistories, pools));
       if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
       break;
     }
-    case 'lp':
+    case 'liquidity': {
+      tryPush(buildVolumeChart(pools));
+      if (tvlHistory.length > 0) tryPush(buildTvlChart(tvlHistory));
+      tryPush(buildApyBaseChart(poolHistories, pools, 'Fee APY (30d)'));
+      break;
+    }
     case 'yield': {
       tryPush(buildApyBaseChart(poolHistories, pools, 'APY Base+Reward (30d)'));
       tryPush(buildIlChart(poolHistories, pools));

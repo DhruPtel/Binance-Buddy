@@ -380,7 +380,7 @@ export interface ApiKeyRecord {
 // Phase 2 Research — Protocol & Deep Dive Types
 // ---------------------------------------------------------------------------
 
-export type ProtocolCategory = 'dex' | 'lending' | 'lp' | 'yield' | 'other';
+export type ProtocolCategory = 'lending' | 'liquidity' | 'yield' | 'other';
 
 /** Raw pool record from DeFiLlama /yields/pools */
 export interface DefiLlamaPool {

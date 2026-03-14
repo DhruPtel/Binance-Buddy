@@ -278,7 +278,7 @@ app.post('/api/research/run', async (_req, res) => {
 // Phase 2 Research Endpoints
 // ---------------------------------------------------------------------------
 
-const VALID_CATEGORIES: ProtocolCategory[] = ['dex', 'lending', 'lp', 'yield', 'other'];
+const VALID_CATEGORIES: ProtocolCategory[] = ['lending', 'liquidity', 'yield', 'other'];
 
 app.get('/api/research/categories', async (_req, res) => {
   try {
@@ -1057,11 +1057,10 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
 
     <!-- Category tabs -->
     <div class="research-tabs">
-      <button class="rtab" onclick="selectResearchTab('dex')">DEX</button>
       <button class="rtab" onclick="selectResearchTab('lending')">Lending</button>
-      <button class="rtab" onclick="selectResearchTab('lp')">LP</button>
-      <button class="rtab" onclick="selectResearchTab('yield')">Yield Farming</button>
-      <button class="rtab" onclick="selectResearchTab('discover')">Discover 🔍</button>
+      <button class="rtab" onclick="selectResearchTab('liquidity')">Liquidity Providing</button>
+      <button class="rtab" onclick="selectResearchTab('yield')">Yield</button>
+      <button class="rtab" onclick="selectResearchTab('discover')">Discover</button>
     </div>
 
     <!-- Category view -->
@@ -1468,7 +1467,7 @@ function selectResearchTab(tab) {
   // Update tab styles
   document.querySelectorAll('.rtab').forEach(function(el) { el.classList.remove('active'); });
   var tabs = document.querySelectorAll('.rtab');
-  var tabNames = ['dex','lending','lp','yield','discover'];
+  var tabNames = ['lending','liquidity','yield','discover'];
   var idx = tabNames.indexOf(tab);
   if (idx >= 0 && tabs[idx]) tabs[idx].classList.add('active');
 
