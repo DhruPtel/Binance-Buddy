@@ -904,6 +904,17 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .charts-row { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
   .chart-wrap { flex:1; min-width:180px; max-width:33%; background:var(--bg-tertiary); border-radius:8px; padding:10px; }
   .chart-title { font-size:11px; color:var(--text-sec); margin-bottom:6px; text-align:center; }
+  .chart-desc { font-size:10px; color:var(--text-sec); margin-top:6px; line-height:1.35; opacity:.7; }
+  .limited-data-toggle { font-size:11px; color:var(--text-sec); cursor:pointer; margin:10px 0 6px; }
+  .limited-data-toggle:hover { color:var(--gold); }
+  .limited-data-list { display:none; }
+  .limited-data-list.open { display:block; }
+  .dd-fees { display:flex; gap:16px; font-size:11px; color:var(--text-sec); margin-bottom:10px; flex-wrap:wrap; }
+  .dd-fees span.value { color:var(--text-primary); font-weight:600; }
+  .apy-capped { color:var(--orange) !important; }
+  .badge-verified { background:rgba(14,203,129,0.1); color:var(--green); padding:2px 6px; border-radius:4px; font-size:10px; }
+  .badge-web-only { background:rgba(255,140,0,0.1); color:var(--orange); padding:2px 6px; border-radius:4px; font-size:10px; }
+  .badge-no-data { background:rgba(132,142,156,0.1); color:var(--text-sec); padding:2px 6px; border-radius:4px; font-size:10px; }
   .discovery-row { display:flex; align-items:center; padding:8px 10px; border-radius:6px; background:var(--bg-tertiary); margin-bottom:6px; gap:10px; }
   .disc-name { font-weight:600; font-size:13px; flex:1; }
   .disc-meta { font-size:11px; color:var(--text-sec); }
@@ -1070,12 +1081,17 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
         <button class="btn btn-sec btn-sm" onclick="refreshCategory()">Refresh ↺</button>
       </div>
       <div id="category-list"><div class="text-sec text-sm">Select a category above.</div></div>
+      <div id="category-limited" style="display:none">
+        <div class="limited-data-toggle" onclick="toggleLimitedData()">▶ Limited Data (<span id="limited-count">0</span> protocols)</div>
+        <div id="limited-list" class="limited-data-list"></div>
+      </div>
     </div>
 
     <!-- Deep dive view -->
     <div id="research-view-deepdive" style="display:none">
       <div class="back-btn" onclick="backToCategory()">← Back</div>
-      <div id="deepdive-title" style="font-size:16px;font-weight:700;margin-bottom:12px"></div>
+      <div id="deepdive-title" style="font-size:16px;font-weight:700;margin-bottom:4px"></div>
+      <div id="deepdive-fees" class="dd-fees"></div>
 
       <div class="section-header">Best Opportunities</div>
       <div id="deepdive-best"></div>
@@ -1508,33 +1524,54 @@ function formatTvl(v) {
   return '$' + v.toFixed(0);
 }
 
+function buildProtoRowHtml(p) {
+  var apyCapped = (p.bestApy != null && p.bestApy >= 500);
+  var apyStr = (p.bestApy != null && p.bestApy > 0) ? (apyCapped ? '500%+ ⚠️' : p.bestApy.toFixed(1) + '%') : '—';
+  var apyColor = apyCapped ? 'var(--orange)' : (p.bestApy != null && p.bestApy >= 5) ? 'var(--green)' : 'var(--text-primary)';
+  var volStr = (p.poolVolume24h != null && p.poolVolume24h > 0) ? formatTvl(p.poolVolume24h) : '—';
+  return '<div class="proto-row">' +
+    '<span class="proto-name">' + escapeHtml(p.name) + '</span>' +
+    '<div class="proto-meta">' +
+      '<span><span class="label">TVL</span><span class="value">' + formatTvl(p.tvlUsd) + '</span></span>' +
+      '<span><span class="label">Best APY</span><span class="value" style="color:' + apyColor + '">' + apyStr + '</span></span>' +
+      '<span><span class="label">24h Vol</span><span class="value">' + volStr + '</span></span>' +
+    '</div>' +
+    '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\\'' + escapeHtml(p.slug) + '\\')">Dive →</button>' +
+    '</div>';
+}
+
 function loadCategoryProtocols(category) {
   var list = document.getElementById('category-list');
+  var limitedSection = document.getElementById('category-limited');
   list.innerHTML = '<div class="text-sec text-sm"><span class="spinner"></span>Loading ' + category + ' protocols...</div>';
+  limitedSection.style.display = 'none';
   fetch('/api/research/category/' + category)
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      if (!d.protocols || d.protocols.length === 0) {
+      var mainProtos = d.protocols || [];
+      var limitedProtos = d.limitedDataProtocols || [];
+      if (mainProtos.length === 0 && limitedProtos.length === 0) {
         list.innerHTML = '<div class="text-sec text-sm">No protocols found. Try running a discovery scan first.</div>';
         return;
       }
-      var html = '';
-      d.protocols.forEach(function(p) {
-        var apyStr = (p.bestApy != null && p.bestApy > 0) ? p.bestApy.toFixed(1) + '%' : '—';
-        var apyColor = (p.bestApy != null && p.bestApy >= 5) ? 'var(--green)' : 'var(--text-primary)';
-        var volStr = (p.poolVolume24h != null && p.poolVolume24h > 0) ? formatTvl(p.poolVolume24h) : '—';
-        html += '<div class="proto-row">' +
-          '<span class="proto-name">' + escapeHtml(p.name) + '</span>' +
-          '<div class="proto-meta">' +
-            '<span><span class="label">TVL</span><span class="value">' + formatTvl(p.tvlUsd) + '</span></span>' +
-            '<span><span class="label">Best APY</span><span class="value" style="color:' + apyColor + '">' + apyStr + '</span></span>' +
-            '<span><span class="label">24h Vol</span><span class="value">' + volStr + '</span></span>' +
-          '</div>' +
-          '<button class="btn btn-sec btn-sm" onclick="loadDeepDive(\\'' + escapeHtml(p.slug) + '\\')">Dive →</button>' +
-          '</div>';
-      });
-      list.innerHTML = html;
-      log('RESEARCH', 'Loaded ' + d.protocols.length + ' protocols in ' + category);
+      // Main list: verified protocols only
+      if (mainProtos.length > 0) {
+        var html = '';
+        mainProtos.forEach(function(p) { html += buildProtoRowHtml(p); });
+        list.innerHTML = html;
+      } else {
+        list.innerHTML = '<div class="text-sec text-sm">No protocols with verified pool data in this category.</div>';
+      }
+      // Limited data: collapsed section
+      if (limitedProtos.length > 0) {
+        limitedSection.style.display = 'block';
+        document.getElementById('limited-count').textContent = limitedProtos.length;
+        var limitedHtml = '';
+        limitedProtos.forEach(function(p) { limitedHtml += buildProtoRowHtml(p); });
+        document.getElementById('limited-list').innerHTML = limitedHtml;
+        document.getElementById('limited-list').classList.remove('open');
+      }
+      log('RESEARCH', 'Loaded ' + mainProtos.length + ' verified + ' + limitedProtos.length + ' limited protocols in ' + category);
     })
     .catch(function(e) {
       list.innerHTML = '<div style="color:var(--red);font-size:12px">Error: ' + escapeHtml(e.message) + '</div>';
@@ -1580,18 +1617,44 @@ function renderPoolRow(pool, protocolName) {
   if (displaySymbol.length <= 2 && protocolName) {
     displaySymbol = protocolName + ': ' + displaySymbol;
   }
+  var apyCapped = pool.apy >= 500;
+  var apyStr = apyCapped ? '500%+ ⚠️' : pool.apy.toFixed(1) + '%';
+  var apyCls = apyCapped ? 'pool-apy apy-capped' : 'pool-apy';
   return '<div class="pool-row ' + (pool.isHighlighted ? 'highlighted' : 'other') + '">' +
     '<span class="pool-symbol">' + escapeHtml(displaySymbol) + '</span>' +
-    '<span class="pool-apy">' + pool.apy.toFixed(1) + '%</span>' +
+    '<span class="' + apyCls + '">' + apyStr + '</span>' +
     '<span class="pool-tvl">' + formatTvl(pool.tvlUsd) + '</span>' +
     '<span class="pool-il ' + ilCls + '">' + ilLabel + '</span>' +
     '<span class="text-sec" style="font-size:10px">' + pool.poolType + '</span>' +
     '</div>';
 }
 
+function toggleLimitedData() {
+  var list = document.getElementById('limited-list');
+  var toggle = document.querySelector('.limited-data-toggle');
+  if (list.classList.contains('open')) {
+    list.classList.remove('open');
+    toggle.textContent = toggle.textContent.replace('▼', '▶');
+  } else {
+    list.classList.add('open');
+    toggle.textContent = toggle.textContent.replace('▶', '▼');
+  }
+}
+
 function renderDeepDive(report) {
   // Title
   document.getElementById('deepdive-title').textContent = report.protocolName + ' — Deep Dive';
+
+  // Fees & Revenue
+  var feesEl = document.getElementById('deepdive-fees');
+  var feeParts = [];
+  feeParts.push('<span><span class="label">TVL</span> <span class="value">' + formatTvl(report.tvlUsd) + '</span></span>');
+  if (report.fees24h != null) feeParts.push('<span><span class="label">Fees 24h</span> <span class="value">' + formatTvl(report.fees24h) + '</span></span>');
+  if (report.fees7d != null) feeParts.push('<span><span class="label">Fees 7d</span> <span class="value">' + formatTvl(report.fees7d) + '</span></span>');
+  if (report.revenue24h != null) feeParts.push('<span><span class="label">Revenue 24h</span> <span class="value">' + formatTvl(report.revenue24h) + '</span></span>');
+  if (report.revenue7d != null) feeParts.push('<span><span class="label">Revenue 7d</span> <span class="value">' + formatTvl(report.revenue7d) + '</span></span>');
+  if (report.fees24h == null && report.revenue24h == null) feeParts.push('<span class="text-sec">No fee data available</span>');
+  feesEl.innerHTML = feeParts.join('');
 
   // Pools: highlighted (top 3) vs other (4-5)
   var highlighted = (report.pools || []).filter(function(p) { return p.isHighlighted; });
@@ -1622,8 +1685,9 @@ function renderDeepDive(report) {
   if (report.charts && report.charts.length > 0) {
     report.charts.forEach(function(chartConfig, i) {
       var canvasId = 'dd-chart-' + i;
+      var descHtml = chartConfig.description ? '<div class="chart-desc">' + escapeHtml(chartConfig.description) + '</div>' : '';
       chartsEl.innerHTML += '<div class="chart-wrap"><div class="chart-title">' + escapeHtml(chartConfig.title) + '</div>' +
-        '<canvas id="' + canvasId + '" height="120"></canvas></div>';
+        '<canvas id="' + canvasId + '" height="120"></canvas>' + descHtml + '</div>';
     });
     // Render after DOM is updated
     setTimeout(function() {
