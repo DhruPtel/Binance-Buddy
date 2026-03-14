@@ -1,5 +1,5 @@
 -- common_holder_concentration.sql
--- Token holder concentration: top wallets by transfer volume
+-- Top wallets by total BNB volume sent to the protocol
 -- Params: {{protocol_address}}, {{days}}
 -- Category: common
 -- Title: Holder Concentration (Top 10)
@@ -7,7 +7,7 @@ SELECT
   "from" AS wallet,
   count(*) AS tx_count,
   sum(value / 1e18) AS total_bnb_volume
-FROM bnb.traces
+FROM bnb.transactions
 WHERE "to" = {{protocol_address}}
   AND block_time > now() - interval '{{days}} days'
   AND success = true

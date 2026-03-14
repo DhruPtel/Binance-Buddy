@@ -1,14 +1,14 @@
 -- lending_liquidations.sql
--- Recent liquidation events
+-- Largest transactions to the protocol (high-value interactions as proxy for liquidations)
 -- Params: {{protocol_address}}, {{days}}
 -- Category: lending
--- Title: Recent Liquidations
+-- Title: Largest Interactions
 SELECT
   block_time,
-  tx_hash,
-  "from" AS liquidator,
-  value / 1e18 AS liquidated_bnb
-FROM bnb.traces
+  hash AS tx_hash,
+  "from" AS sender,
+  value / 1e18 AS value_bnb
+FROM bnb.transactions
 WHERE "to" = {{protocol_address}}
   AND block_time > now() - interval '{{days}} days'
   AND success = true

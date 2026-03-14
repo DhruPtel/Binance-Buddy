@@ -1,5 +1,5 @@
 -- liquidity_top_lps.sql
--- Top LP positions by total value sent to protocol
+-- Top addresses by total BNB value sent to the DEX router
 -- Params: {{protocol_address}}, {{days}}
 -- Category: liquidity
 -- Title: Top LP Positions
@@ -7,7 +7,7 @@ SELECT
   "from" AS lp_address,
   count(*) AS tx_count,
   sum(value / 1e18) AS total_bnb_deposited
-FROM bnb.traces
+FROM bnb.transactions
 WHERE "to" = {{protocol_address}}
   AND block_time > now() - interval '{{days}} days'
   AND success = true

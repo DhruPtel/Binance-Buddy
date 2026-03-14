@@ -81,6 +81,20 @@ function isBscChain(chain: string): boolean {
   return normalizeChain(chain) === 'bsc';
 }
 
+/**
+ * Extract BSC contract addresses from DeFiLlama's multi-chain address string.
+ * Format: "bsc:0x1234...,ethereum:0xabcd..." — comma-separated, chain-prefixed.
+ * Returns only BSC addresses with the prefix stripped.
+ */
+function parseBscAddresses(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.toLowerCase().startsWith('bsc:'))
+    .map((s) => s.slice(4)); // strip "bsc:" prefix
+}
+
 // ---------------------------------------------------------------------------
 // categorizeProtocol — maps DeFiLlama category strings to ProtocolCategory
 // ---------------------------------------------------------------------------
@@ -179,7 +193,7 @@ export async function fetchAllProtocols(): Promise<ProtocolEntry[]> {
         tvlUsd: p.tvl ?? 0,
         volume24h: 0, // DeFiLlama /protocols doesn't return volume; use pool-level volumeUsd1d in deep dives
         website: p.url,
-        contractAddresses: p.address ? [p.address] : [],
+        contractAddresses: parseBscAddresses(p.address),
         discoveredAt: Date.now(),
         source: 'defillama' as const,
         verified: true,

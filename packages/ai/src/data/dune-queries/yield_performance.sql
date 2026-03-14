@@ -1,5 +1,5 @@
 -- yield_performance.sql
--- Vault performance: daily activity volume as proxy for yield generation
+-- Daily vault activity: tx count, BNB value, and unique depositors
 -- Params: {{protocol_address}}, {{days}}
 -- Category: yield
 -- Title: Vault Performance
@@ -8,7 +8,7 @@ SELECT
   count(*) AS tx_count,
   sum(value / 1e18) AS total_value_bnb,
   count(DISTINCT "from") AS unique_users
-FROM bnb.traces
+FROM bnb.transactions
 WHERE "to" = {{protocol_address}}
   AND block_time > now() - interval '{{days}} days'
   AND success = true
