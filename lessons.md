@@ -295,3 +295,109 @@ The agent reads this at session start and never makes the same mistake twice.
   build the dist first, THEN run `--noEmit` on the server package to get clean types.
 - Never assume a workspace package dist is fresh. If you get "Output file has not been built" errors,
   build the dependency package first.
+
+---
+
+## Phase 2 Research — DeFiLlama Integration (Mar 13)
+
+### Template Literal Regex Escaping (CRITICAL)
+- Inside a TypeScript backtick template literal, `\*` is just `*` — the backslash is consumed
+  by the template string parser before the JS engine sees it.
+- `/\*\*([^*]+)\*\*/g` inside a template literal becomes `/**([^*]+)**/g` in the browser,
+  which breaks JS parsing. The `g` after `/` becomes an undefined variable reference.
+- **Fix**: double-escape: `/\\*\\*([^*]+)\\*\\*/g` → browser receives `/\*\*([^*]+)\*\*/g`.
+- **Validation ritual**: after every change to the dashboard HTML template literal, restart
+  the server, curl localhost:3000, extract the `<script>` block with sed, run `node --check`
+  on the extracted JS. Never trust `tsc --noEmit` alone — TypeScript doesn't validate the
+  JavaScript inside template literal strings.
+
+### DeFiLlama API Field Mismatches
+- `/protocols` endpoint does NOT have a `volume_24h` field. The code mapped `p.volume_24h ?? 0`
+  which always returned 0. Volume lives on separate endpoints (`/overview/dexs`) or in
+  per-pool `volumeUsd1d` from `/yields/pools`. Don't assume field names — check live API responses.
+- `/protocols` uses chain name `"Binance"`, `/yields/pools` uses `"BSC"` for the same chain.
+  normalizeChain() is required for any cross-endpoint join.
+- `/protocols` may list a protocol on BSC but `/yields/pools` may have zero BSC entries for it
+  (e.g. Curve DEX). Protocol-level presence ≠ pool-level data availability.
+- `fetchPoolHistory` (`/chart/{poolId}`) returns 7 fields per data point: `timestamp`, `apy`,
+  `tvlUsd`, `apyBase`, `apyReward`, `il7d`, `apyBase7d`. The original code only extracted 3.
+  Always check the full API response shape, not just what the code declares.
+
+### DeFiLlama Data Quality
+- APY values for micro-TVL pools are unreliable. A pool with $500 TVL and high reward emissions
+  can show 28,000% APY. Filter pools below $10k TVL before computing bestApy or showing in UI.
+- Some BSC pools have non-ASCII symbols (CJK characters like 鲸平-USDT). These are real tokens
+  but look broken in an English-language UI. Filter with `/[^\x20-\x7E]/` regex on symbol field.
+- DeFiLlama `il7d` field is null for most pools (especially lending). Only LP pairs with
+  sufficient history have IL data. Chart builders must handle null gracefully — skip the chart
+  entirely if all data points are null, never show an empty chart.
+
+### Dynamic Imports in Module Cycles
+- `researchProtocol()` in research.ts needs the registry from discovery.ts to determine
+  protocol category for chart selection. But discovery.ts imports from research.ts (or could
+  in future). Using `await import('./discovery.js')` breaks the static cycle.
+- Dynamic imports can fail at runtime (module not loaded, circular dependency timing). Always
+  wrap in try/catch with a sensible fallback (e.g. category defaults to 'other').
+
+---
+
+## Phase 3 Research Architecture (Mar 14)
+
+### DeFiLlama Address Format
+- DeFiLlama `/protocols` returns `address` as a multi-chain string: `"bsc:0x1234...,ethereum:0xabcd..."`.
+  This is NOT a single contract address. Split by comma, filter for `bsc:` prefix, strip prefix.
+  If no `bsc:` entry, the protocol has no BSC contract address in DeFiLlama's data.
+- Storing the raw string as `contractAddresses: [p.address]` results in addresses like
+  `"bsc:0x1234...,ethereum:0xabcd..."` being passed to SQL queries — matches nothing on-chain.
+
+### DeFiLlama Yields Endpoints (Pro Risk)
+- `yields.llama.fi/pools` and `yields.llama.fi/chart/{poolId}` are marked 🔒 Pro in docs but
+  legacy URLs work without a key. Could break anytime — build with GoldRush fallback.
+- GoldRush fallback provides DEX pool data (TVL, volume) but NOT APY or IL data. When falling
+  back, APY fields are null/0 — chart builders handle this gracefully by skipping all-zero datasets.
+- Fallback trigger is `rawPools.length === 0` (empty result), NOT try/catch. `fetchYieldPools()`
+  already catches errors internally and returns `[]`. Don't wrap the call in another try/catch.
+
+### Dune Analytics BSC Tables
+- `bnb.traces` is internal EVM call traces (from, to, value, gas, input, output). It does NOT
+  have decoded fields like `action`, `amount_usd`, or any protocol-specific columns.
+- `bnb.transactions` is top-level transactions (from, to, value, hash, block_time, success).
+  Better for basic activity queries but still raw — no decoded event data.
+- Protocol-specific decoded tables (e.g. `venus_bnb.Comptroller_evt_*`) contain structured
+  event data (borrow, supply, liquidation events with typed fields). These are what you need
+  for meaningful DeFi analysis. Use Dune MCP `searchTables` to discover available tables.
+- Writing SQL templates against `bnb.traces` with columns like `action = 'borrow'` guarantees
+  zero rows — those columns don't exist on the raw traces table.
+
+### Atomic Type Union Changes
+- Changing `ProtocolCategory` from `'dex' | 'lp' | ...` to `'liquidity' | ...` breaks every
+  file that references the old values: `categorizeProtocol()`, `selectChartsForCategory()` switch
+  cases, dashboard `VALID_CATEGORIES` array, tab buttons HTML, `tabNames` JS array, and any
+  persisted registry entries with old values.
+- Must update ALL consumers in one atomic commit. If you change the type union without updating
+  the switch cases, `tsc --noEmit` will fail on unreachable/missing cases.
+- Add `migrateRegistryCategories()` to remap persisted old values on load. Run on module init,
+  write back to disk if any values changed. Must be idempotent.
+
+### ChartConfig.description is Required
+- Adding `description: string` to `ChartConfig` as a required field means every chart builder
+  function must be updated in the same commit. There are 6 chart builders in research.ts.
+- `buildApyBaseChart` is called with different titles per category — add a `description` parameter
+  so the caller can pass context-appropriate text (lending vs liquidity vs yield descriptions).
+
+### bestApy Bug
+- `researchCategory()` computed `bestApy` using `pool.apy` (total APY including reward incentives)
+  instead of `pool.apyBase` (organic yield from real protocol activity). This inflated displayed
+  APY with unsustainable token incentives.
+- Fix: `pool.apyBase ?? pool.apy` — prefer organic yield, fall back to total only when base is null.
+
+### Claude with Empty Data
+- `generateDeepAnalysis()` must check `totalRows === 0` before calling Claude. If all Dune queries
+  returned empty results, Claude responds with "please provide data" instead of analysis.
+- Return a clear template message explaining the likely cause (contract address not indexed, or
+  query templates need updating for this protocol). Don't waste a Claude API call on empty data.
+
+### GoldRush Fallback Pattern
+- GoldRush fallback triggers on empty result (`rawPools.length === 0`), not on thrown error.
+  `fetchYieldPools()` and `fetchPoolHistory()` both catch errors internally and return `[]`.
+- Check the return value length, not a try/catch around the call. The error is already handled.

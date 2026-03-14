@@ -1,27 +1,92 @@
 # Binance Buddy — Progress
 
 ## Current State
-Phase 2 Research complete. 8 packages fully built and typechecking clean.
+Phase 3 Research complete. 8 packages fully built and typechecking clean.
 19/19 tests pass. Extension built to dist/.
+Dune deep research pipeline built but queries return limited data — needs decoded
+protocol-specific tables (e.g. venus_bnb.*) instead of raw bnb.transactions. Parked.
+
+## Phase 2 Research Bugfixes (Mar 13)
+- Fixed regex escaping in template literal for strategy brief markdown rendering
+  (\\*\\* not \*\* — backslashes consumed by backtick string). Root cause of 3 bugs:
+  pool rendering crash, blank strategy briefs, missing charts.
+- Junk pool filter: pools with TVL < $10k or non-ASCII symbols excluded from
+  buildPoolOpportunities and category bestApy/volume aggregation. Removes scam
+  tokens (28788% APY micro-pools, CJK-named tokens).
+- fetchPoolHistory expanded: now extracts apyBase, apyReward, il7d from DeFiLlama
+  chart API (was only extracting apy + tvlUsd).
+- selectChartsForCategory: picks 3 charts tailored to protocol category —
+  DEX (volume/TVL/fee APY), lending (supply APY/reward APY/TVL),
+  LP/yield (APY base/IL/TVL). Empty data → chart skipped.
+- Category view: 3 columns (TVL, Best APY, 24h Vol from pool-aggregated data).
+  bestApy + poolVolume24h computed in single pass over cached yield pools.
+- Pool names: short symbols (≤2 chars) prefixed with protocol name ("Lista: U").
+- No-pools message: "No tracked yield pools on BSC — showing protocol-level data only".
+- try/catch on dynamic discovery.js import in researchProtocol, falls back to 'other'.
+
+## Open Problems
+1. Dune deep research queries use bnb.transactions (raw tx data) which returns basic
+   activity metrics but not protocol-specific events (borrow, supply, liquidation).
+   Need decoded tables per protocol (e.g. venus_bnb.Comptroller_evt_*) for meaningful
+   lending/liquidity/yield analysis. Use Dune MCP searchTables to discover available
+   tables per protocol, then update SQL templates accordingly.
+2. DeFiLlama yields endpoints (yields.llama.fi/pools, /chart) are marked Pro in docs
+   but work on legacy URLs. Could break anytime. GoldRush fallback is wired but
+   provides less data (no APY, no IL). Monitor for 403s.
+3. APY data from DeFiLlama is unreliable for small pools — now capped at 500% with
+   warning badge. bestApy fixed to use apyBase (organic yield) instead of total apy.
+
+## Phase 3 Research Architecture (Mar 14)
+- Step 1: Atomic category migration — ProtocolCategory 'dex'/'lp' → 'liquidity', 'discover'
+  kept out (UI tab only). categorizeProtocol(), selectChartsForCategory(), dashboard tabs,
+  VALID_CATEGORIES, tabNames, migrateRegistryCategories() all updated in one commit.
+- Step 2: fees/revenue extraction from /api/protocol/{slug} — RawProtocolDetail gains
+  metrics.fees/revenue, DeepDiveReport gains fees24h/7d + revenue24h/7d fields.
+- Step 3: GoldRush client (packages/ai/src/data/goldrush.ts) — getTokenBalances,
+  getDexPools (xy=k REST), getHistoricalPrices. @covalenthq/client-sdk added.
+- Step 4: GoldRush fallback in researchProtocol() — trigger on rawPools.length === 0,
+  maps GoldRushDexPool → DefiLlamaPool format. Pool history fallback via getHistoricalPrices.
+- Step 5: Data quality rules — APY 500% cap, hasVerifiedPools in researchCategory(),
+  bestApy bug fix (pool.apyBase ?? pool.apy), CategorySummary split into
+  protocols + limitedDataProtocols.
+- Step 6: ChartConfig.description field added, all 6 chart builders updated with
+  category-specific decision-guidance descriptions.
+- Step 7: Dashboard UI overhaul — fees/revenue in deep dive header, APY cap display
+  (500%+ ⚠️), "Limited Data" collapsed section, chart descriptions, buildProtoRowHtml helper.
+- Step 8: Dune client (packages/ai/src/data/dune.ts) + 11 SQL templates in dune-queries/.
+  Template loading, parameter filling, execute→poll→results flow. Credit tracking
+  persisted to data/dune-usage.json.
+- Step 9: DeepResearchResult + DuneQueryResult types in core/types.ts. 'goldrush' + 'dune'
+  added to ApiService union.
+- Step 10: Deep Research panel in dashboard — [Deep Research] button, loading spinner,
+  Dune query result tables, charts, holder distribution, credit counter.
+- Step 11: GET /api/research/deep/:slug endpoint — calls runDeepResearch().
+- Step 12: runDeepResearch() orchestrator in research.ts — Dune templates + GoldRush
+  holders + Claude Haiku analysis. Cached 30min.
+- Step 13: GET /api/research/credits endpoint. getDuneUsage() exposed.
+- Bugfix: DeFiLlama address parsing — "bsc:0x...,ethereum:0x..." split and BSC-only
+  extracted. SQL templates rewritten from bnb.traces → bnb.transactions.
+- Bugfix: generateDeepAnalysis() skips Claude call when all queries return 0 rows.
 
 ## Phase 2 Research (Mar 13)
-- core/types.ts: 10 new Phase 2 types — ProtocolCategory, DefiLlamaPool, PoolOpportunity,
-  ChartConfig, ProtocolRisk, DeepDiveReport, ProtocolEntry, CategorySummary,
-  DiscoveryResult, BraveSearchResult; 'brave' added to ApiService union
-- ai/data/defillama.ts: DeFiLlama client — per-endpoint 15min cache, 5-concurrent request
-  queue (semaphore), normalizeChain() fixes 'Binance'/'BSC' ambiguity, BSC pool list cached
-  once per 15min and shared across all callers
+- core/types.ts: 10+ Phase 2 types — ProtocolCategory, DefiLlamaPool, PoolOpportunity,
+  ChartConfig, ProtocolRisk, DeepDiveReport, ProtocolEntry (with bestApy, poolVolume24h),
+  CategorySummary, DiscoveryResult, BraveSearchResult; 'brave' added to ApiService union
+- ai/data/defillama.ts: DeFiLlama client — per-endpoint 15min cache, sequential request
+  queue (200ms delay), normalizeChain() fixes 'Binance'/'BSC' ambiguity, BSC pool list
+  cached once per 15min and shared across all callers, PoolHistoryEntry type with full fields
 - ai/data/brave-search.ts: Brave Search client — 1500/month hard cap, counter persisted to
   data/brave-usage.json, returns [] gracefully when key absent or cap hit
 - ai/discovery.ts: Protocol discovery — DeFiLlama scan + Brave web search; Brave results
   only verified=true if also on DeFiLlama; unverified entries blocked from auto-research
-- ai/research.ts: Added researchCategory() (15min cache) + researchProtocol() (30min cache);
-  Claude Haiku strategy brief with 10/day hard cap + template fallback; 5-pool deep dives
-  (top 3 highlighted as Best Opportunities, bottom 2 as Other Pools)
+- ai/research.ts: researchCategory() (15min cache, enriched with bestApy + poolVolume24h) +
+  researchProtocol() (30min cache); Claude Haiku strategy brief with 10/day hard cap +
+  template fallback; 5-pool deep dives (top 3 Best Opportunities, bottom 2 Other Pools);
+  selectChartsForCategory for category-specific chart selection; junk pool filtering
 - server/index.ts: 5 new endpoints (categories, category/:name, protocol/:slug, discover,
-  discoveries); research panel rewritten with tab nav (DEX/Lending/LP/Yield/Discover);
-  Chart.js v4.4.0 via CDN; single reusable renderChart(canvasId, config) function;
-  all chart data served as ChartConfig JSON from API — no hardcoded configs in HTML
+  discoveries); research panel with tab nav (DEX/Lending/LP/Yield/Discover);
+  Chart.js v4.4.0 via CDN; renderChart(canvasId, config); 3-column category view;
+  markdown bold rendering in strategy briefs; short-symbol pool name enrichment
 
 ## Quick Module Map
 
