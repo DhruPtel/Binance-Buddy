@@ -443,6 +443,10 @@ export interface DeepDiveReport {
   category: ProtocolCategory;
   tvlUsd: number;
   volume24h: number;
+  fees24h: number | null;
+  fees7d: number | null;
+  revenue24h: number | null;
+  revenue7d: number | null;
   generatedAt: number;
   pools: PoolOpportunity[];     // 3–5 entries; pools[0..2].isHighlighted = true
   strategyBrief: string;        // Claude-generated or template fallback

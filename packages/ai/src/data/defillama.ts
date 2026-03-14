@@ -118,6 +118,10 @@ interface RawProtocolDetail {
   tvl?: Array<{ date: number; totalLiquidityUSD: number }>;
   audit_links?: string[];
   auditNote?: string;
+  metrics?: {
+    fees?: { '24h'?: number; '7d'?: number };
+    revenue?: { '24h'?: number; '7d'?: number };
+  };
 }
 
 interface RawPoolsResponse {
@@ -198,11 +202,18 @@ export async function fetchAllProtocols(): Promise<ProtocolEntry[]> {
  * Fetch TVL history for a protocol slug. Caches 15min.
  * Returns null if not found.
  */
-export async function fetchProtocolDetail(
-  slug: string,
-): Promise<{ tvlHistory: Array<{ date: number; tvl: number }>; isAudited: boolean } | null> {
+export interface ProtocolDetailResult {
+  tvlHistory: Array<{ date: number; tvl: number }>;
+  isAudited: boolean;
+  fees24h: number | null;
+  fees7d: number | null;
+  revenue24h: number | null;
+  revenue7d: number | null;
+}
+
+export async function fetchProtocolDetail(slug: string): Promise<ProtocolDetailResult | null> {
   const key = `detail:${slug}`;
-  const cached = cacheGet<{ tvlHistory: Array<{ date: number; tvl: number }>; isAudited: boolean }>(key);
+  const cached = cacheGet<ProtocolDetailResult>(key);
   if (cached) return cached;
 
   try {
@@ -220,7 +231,14 @@ export async function fetchProtocolDetail(
       (raw.auditNote && raw.auditNote.toLowerCase().includes('audit')),
     );
 
-    const result = { tvlHistory, isAudited };
+    const result: ProtocolDetailResult = {
+      tvlHistory,
+      isAudited,
+      fees24h: raw.metrics?.fees?.['24h'] ?? null,
+      fees7d: raw.metrics?.fees?.['7d'] ?? null,
+      revenue24h: raw.metrics?.revenue?.['24h'] ?? null,
+      revenue7d: raw.metrics?.revenue?.['7d'] ?? null,
+    };
     cacheSet(key, result);
     return result;
   } catch (err) {

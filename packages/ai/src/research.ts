@@ -639,6 +639,10 @@ export async function researchProtocol(
 
   const tvlHistory = detail?.tvlHistory ?? [];
   const isAudited = detail?.isAudited ?? false;
+  const fees24h = detail?.fees24h ?? null;
+  const fees7d = detail?.fees7d ?? null;
+  const revenue24h = detail?.revenue24h ?? null;
+  const revenue7d = detail?.revenue7d ?? null;
 
   // Get pool histories for top 3 pools (for charts) — in parallel, capped by request queue
   const top3Pools = rawPools.slice(0, 3);
@@ -674,6 +678,10 @@ export async function researchProtocol(
     category,
     tvlUsd: latestTvl,
     volume24h: rawPools.reduce((s, p) => s + (p.volumeUsd1d ?? 0), 0),
+    fees24h,
+    fees7d,
+    revenue24h,
+    revenue7d,
     generatedAt: Date.now(),
     pools,
     strategyBrief,
