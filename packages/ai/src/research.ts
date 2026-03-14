@@ -13,6 +13,8 @@ import type {
   ProtocolCategory,
   CategorySummary,
   DeepDiveReport,
+  DeepResearchResult,
+  DuneQueryResult,
   PoolOpportunity,
   ChartConfig,
   ProtocolRisk,
@@ -28,7 +30,9 @@ import {
   fetchYieldPools,
 } from './data/defillama.js';
 import type { PoolHistoryEntry } from './data/defillama.js';
-import { getDexPools, getHistoricalPrices } from './data/goldrush.js';
+import { getDexPools, getHistoricalPrices, getTokenBalances } from './data/goldrush.js';
+import { runTemplatesForCategory, getDuneUsage } from './data/dune.js';
+import type { DuneQueryResult as DuneClientResult } from './data/dune.js';
 
 // In-memory store (Redis in Day 7)
 let latestReport: ResearchReport | null = null;
@@ -774,3 +778,139 @@ export async function researchProtocol(
   deepDiveCache.set(slug, { report, expiresAt: Date.now() + DEEP_DIVE_CACHE_TTL });
   return report;
 }
+
+// =============================================================================
+// Phase 3 — Deep Research (Layer 3, user-initiated)
+// =============================================================================
+
+// Cache deep research results for 30min per slug
+const deepResearchCache = new Map<string, { result: DeepResearchResult; expiresAt: number }>();
+
+async function generateDeepAnalysis(
+  protocolName: string,
+  category: string,
+  queryResults: DuneQueryResult[],
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !canCallClaudeForBrief()) {
+    // Template fallback
+    const queryCount = queryResults.length;
+    const totalRows = queryResults.reduce((s, q) => s + q.rows.length, 0);
+    return `Deep research on ${protocolName} (${category}): ${queryCount} queries returned ${totalRows} rows of on-chain data. Review the tables below for protocol activity, flows, and concentration metrics.`;
+  }
+
+  try {
+    strategyBriefCallsToday++;
+    const client = new Anthropic({ apiKey });
+
+    const dataSummary = queryResults.map((q) => {
+      const preview = q.rows.slice(0, 5).map((r) => JSON.stringify(r)).join('\n');
+      return `### ${q.title}\nColumns: ${q.columns.join(', ')}\nRows: ${q.rows.length}\nSample:\n${preview}`;
+    }).join('\n\n');
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: 'You are a DeFi analyst. Write a 3-5 sentence analysis of on-chain data for a BSC protocol. Be specific about what the data shows — trends, risks, and opportunities. Reference actual numbers from the data.',
+      messages: [{
+        role: 'user',
+        content: `Protocol: ${protocolName} (${category})\n\nOn-chain query results:\n${dataSummary}\n\nWrite a concise analysis.`,
+      }],
+    });
+
+    const text = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as Anthropic.TextBlock).text)
+      .join(' ');
+
+    return text || `Deep research complete for ${protocolName}. ${queryResults.length} queries executed.`;
+  } catch (err) {
+    console.error('[research] Deep analysis generation error:', err);
+    return `Deep research on ${protocolName}: ${queryResults.length} on-chain queries completed. See tables below for detailed results.`;
+  }
+}
+
+/**
+ * Run Layer 3 deep research for a protocol.
+ * Executes Dune SQL templates for the protocol's category, optionally pulls
+ * GoldRush holder data, and generates an AI analysis summary.
+ * Cached 30min per slug. Returns null if no API keys available.
+ */
+export async function runDeepResearch(
+  slug: string,
+  protocolAddress: string | null,
+  category: string,
+  protocolName: string,
+): Promise<DeepResearchResult | null> {
+  // Check cache
+  const cached = deepResearchCache.get(slug);
+  if (cached && Date.now() < cached.expiresAt) return cached.result;
+
+  // Need at least Dune key
+  if (!process.env.DUNE_API_KEY) {
+    return null;
+  }
+
+  const address = protocolAddress || '0x0000000000000000000000000000000000000000';
+
+  // Run Dune templates for this category
+  const duneResults = await runTemplatesForCategory(category, {
+    protocol_address: address,
+    days: 30,
+  });
+
+  // Map to core DuneQueryResult type (same shape, but this ensures the contract)
+  const queries: DuneQueryResult[] = duneResults.map((r: DuneClientResult) => ({
+    templateName: r.templateName,
+    title: r.title,
+    columns: r.columns,
+    rows: r.rows,
+    executionTimeMs: r.executionTimeMs,
+    creditsCost: r.creditsCost,
+  }));
+
+  // GoldRush holder distribution (optional)
+  let holderDistribution: DeepResearchResult['holderDistribution'];
+  if (process.env.GOLDRUSH_API_KEY && protocolAddress) {
+    try {
+      const balances = await getTokenBalances('bsc-mainnet', protocolAddress);
+      if (balances.length > 0) {
+        const totalValue = balances.reduce((s, b) => s + b.valueUsd, 0);
+        holderDistribution = {
+          topHolders: balances.slice(0, 10).map((b) => ({
+            address: b.address,
+            balance: b.balance,
+            percentage: totalValue > 0 ? (b.valueUsd / totalValue) * 100 : 0,
+          })),
+          totalHolders: balances.length,
+        };
+      }
+    } catch (err) {
+      console.error('[research] GoldRush holder fetch error:', err);
+    }
+  }
+
+  // Generate AI analysis
+  const analysis = await generateDeepAnalysis(protocolName, category, queries);
+
+  const usage = getDuneUsage();
+
+  const result: DeepResearchResult = {
+    protocolSlug: slug,
+    protocolName,
+    category: category as ProtocolCategory,
+    generatedAt: Date.now(),
+    queries,
+    charts: [], // Charts from Dune data would require query-specific builders — deferred
+    holderDistribution,
+    analysis,
+    creditsUsed: queries.reduce((s, q) => s + q.creditsCost, 0),
+    creditsRemaining: usage.remaining,
+  };
+
+  deepResearchCache.set(slug, { result, expiresAt: Date.now() + DEEP_DIVE_CACHE_TTL });
+  return result;
+}
+
+/** Re-export Dune usage for the server credits endpoint */
+export { getDuneUsage } from './data/dune.js';

@@ -33,6 +33,8 @@ import {
   ALL_TOOLS,
   researchCategory,
   researchProtocol,
+  runDeepResearch,
+  getDuneUsage,
   discoverNewProtocols,
   getRegistry,
   getRegistryEntry,
@@ -361,6 +363,43 @@ app.get('/api/research/discoveries', (_req, res) => {
     .sort((a, b) => b.discoveredAt - a.discoveredAt)
     .slice(0, 20);
   res.json({ protocols: all, lastRunAt: getLastDiscoveryRun() });
+});
+
+app.get('/api/research/deep/:slug', async (req, res) => {
+  const { slug } = req.params;
+
+  // Look up protocol info from registry or DeFiLlama
+  const registryEntry = getRegistryEntry(slug);
+  if (registryEntry && !registryEntry.verified) {
+    res.status(400).json({ error: `Protocol '${slug}' is unverified. Deep research is not available.` });
+    return;
+  }
+
+  const category = registryEntry?.category ?? 'other';
+  const protocolAddress = registryEntry?.contractAddresses?.[0] ?? null;
+  const protocolName = registryEntry?.name ?? (slug.charAt(0).toUpperCase() + slug.slice(1).replace(/-/g, ' '));
+
+  try {
+    const result = await runDeepResearch(slug, protocolAddress, category, protocolName);
+    if (!result) {
+      res.status(503).json({ error: 'Deep research unavailable. Ensure DUNE_API_KEY is configured.' });
+      return;
+    }
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/research/credits', (_req, res) => {
+  const dune = getDuneUsage();
+  res.json({
+    dune: {
+      creditsUsed: dune.credits,
+      monthlyLimit: dune.monthlyLimit,
+      remaining: dune.remaining,
+    },
+  });
 });
 
 app.post('/api/chat', async (req, res) => {
