@@ -366,7 +366,9 @@ export type ApiService =
   | 'ankr'
   | 'quicknode'
   | 'coingecko'
-  | 'brave';
+  | 'brave'
+  | 'goldrush'
+  | 'dune';
 
 export interface ApiKeyRecord {
   service: ApiService;
@@ -495,6 +497,37 @@ export interface BraveSearchResult {
   url: string;
   description: string;
   age?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 Deep Research — Dune + Layer 3 Types
+// ---------------------------------------------------------------------------
+
+/** Individual Dune query result */
+export interface DuneQueryResult {
+  templateName: string;                    // e.g. 'lending_utilization'
+  title: string;                           // human-readable title
+  columns: string[];                       // column names from Dune response
+  rows: Array<Record<string, unknown>>;    // row data
+  executionTimeMs: number;
+  creditsCost: number;
+}
+
+/** Full deep research result — returned by GET /api/research/deep/:slug */
+export interface DeepResearchResult {
+  protocolSlug: string;
+  protocolName: string;
+  category: ProtocolCategory;
+  generatedAt: number;
+  queries: DuneQueryResult[];              // raw query results
+  charts: ChartConfig[];                   // charts built from query results
+  holderDistribution?: {                   // from GoldRush
+    topHolders: Array<{ address: string; balance: string; percentage: number }>;
+    totalHolders: number;
+  };
+  analysis: string;                        // agent-generated interpretation
+  creditsUsed: number;                     // total Dune credits consumed
+  creditsRemaining: number;                // Dune credits left this month
 }
 
 // ---------------------------------------------------------------------------
