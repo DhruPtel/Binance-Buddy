@@ -28,6 +28,7 @@ import {
   fetchYieldPools,
 } from './data/defillama.js';
 import type { PoolHistoryEntry } from './data/defillama.js';
+import { getDexPools, getHistoricalPrices } from './data/goldrush.js';
 
 // In-memory store (Redis in Day 7)
 let latestReport: ResearchReport | null = null;
@@ -631,8 +632,8 @@ export async function researchProtocol(
   const cached = deepDiveCache.get(slug);
   if (cached && Date.now() < cached.expiresAt) return cached.report;
 
-  // Fetch pools and protocol detail concurrently
-  const [rawPools, detail] = await Promise.all([
+  // Fetch DeFiLlama pools and protocol detail concurrently
+  const [defillPools, detail] = await Promise.all([
     getPoolsForProtocol(slug, 5),
     fetchProtocolDetail(slug),
   ]);
@@ -644,10 +645,51 @@ export async function researchProtocol(
   const revenue24h = detail?.revenue24h ?? null;
   const revenue7d = detail?.revenue7d ?? null;
 
-  // Get pool histories for top 3 pools (for charts) — in parallel, capped by request queue
+  // GoldRush fallback: if DeFiLlama returned no pools, try GoldRush DEX pool data.
+  // Trigger is empty result, not error — fetchYieldPools() already returns [] on failure.
+  let rawPools: DefiLlamaPool[] = defillPools;
+  if (rawPools.length === 0) {
+    const grPools = await getDexPools('bsc-mainnet', slug);
+    if (grPools.length > 0) {
+      rawPools = grPools.map((p) => ({
+        pool: p.poolAddress,
+        chain: 'bsc',
+        project: slug,
+        symbol: p.token0Symbol && p.token1Symbol
+          ? `${p.token0Symbol}-${p.token1Symbol}`
+          : p.poolAddress.slice(0, 8),
+        tvlUsd: p.totalLiquidityUsd,
+        apy: 0,
+        apyBase: null,
+        apyReward: null,
+        il7d: null,
+        volumeUsd1d: p.volume24hUsd,
+        underlyingTokens: [p.token0Address, p.token1Address].filter(Boolean),
+      }));
+    }
+  }
+
+  // Get pool histories for top 3 pools.
+  // If DeFiLlama chart returns [], fall back to GoldRush token price history
+  // for the pool's first underlying token. Price points mapped to PoolHistoryEntry
+  // with zero apy/tvl — charts skip all-zero datasets gracefully.
   const top3Pools = rawPools.slice(0, 3);
-  const histories = await Promise.all(
-    top3Pools.map((p) => fetchPoolHistory(p.pool)),
+  const histories: PoolHistoryEntry[][] = await Promise.all(
+    top3Pools.map(async (p) => {
+      const dlHistory = await fetchPoolHistory(p.pool);
+      if (dlHistory.length > 0) return dlHistory;
+      const tokenAddr = p.underlyingTokens?.[0];
+      if (!tokenAddr) return [];
+      const prices = await getHistoricalPrices('bsc-mainnet', tokenAddr);
+      return prices.map((pt) => ({
+        timestamp: pt.date,
+        apy: 0,
+        tvlUsd: 0,
+        apyBase: null,
+        apyReward: null,
+        il7d: null,
+      }));
+    }),
   );
 
   const pools = buildPoolOpportunities(rawPools);
