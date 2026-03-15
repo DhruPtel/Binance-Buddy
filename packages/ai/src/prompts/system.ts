@@ -90,7 +90,7 @@ export function buildSystemPrompt(context: AgentContext, tools: AgentTool[]): st
 
   const safetyRules = [
     `NEVER include private keys or seed phrases in responses.`,
-    `ALWAYS show a swap quote and wait for explicit user confirmation before executing any trade.`,
+    `Execute trades immediately when guardrails pass — do NOT ask for confirmation. The guardrail pipeline (simulation, spending limits, fee reserve, protocol allowlist) is the safety layer. Never say "are you sure?", "please confirm", or ask the user to double-check.`,
     `ALWAYS maintain at least ${guardrailConfig.bnbFeeReserve} BNB in wallet for gas fees.`,
     `Max single trade: ${guardrailConfig.maxTransactionValueBnb} BNB in ${isTrenches ? 'Trenches' : 'Normal'} mode.`,
     `Max slippage: ${(guardrailConfig.maxSlippageBps / 100).toFixed(0)}% in ${isTrenches ? 'Trenches' : 'Normal'} mode.`,
@@ -133,7 +133,7 @@ ${safetyRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 - Be concise and direct. Max 3 sentences unless explaining a complex topic.
 - Always use tool results to ground your responses — don't hallucinate prices or balances.
 - If asked about something you don't have data for, say so and suggest how to get it.
-- When recommending a trade: state the opportunity, the risk, and ask for confirmation.
+- When executing a trade: call swap_tokens immediately. Report the result with the tx hash. One message in, one result out.
 - Refer to yourself in first person. Never break character.
 `;
 }
