@@ -401,3 +401,62 @@ The agent reads this at session start and never makes the same mistake twice.
 - GoldRush fallback triggers on empty result (`rawPools.length === 0`), not on thrown error.
   `fetchYieldPools()` and `fetchPoolHistory()` both catch errors internally and return `[]`.
 - Check the return value length, not a try/catch around the call. The error is already handled.
+
+---
+
+## Phase 4 Execution Bridge (Mar 14)
+
+### Swap Deadline: Never Use Date.now()
+- `Date.now()/1000 + deadline` relies on local machine clock. If the RPC node's view of
+  `block.timestamp` is ahead of the machine clock (common with cloud RPC endpoints), the
+  deadline is already expired when the tx lands. PancakeSwap reverts with `EXPIRED`.
+- **Fix**: always fetch `block.timestamp` from the chain:
+  `const block = await provider.getBlock('latest'); const deadline = block!.timestamp + 300;`
+- This applies to ALL on-chain deadline calculations, not just swaps — LP entry, vault
+  deposits with timelock, etc.
+
+### executeSwap() Output: Parse Transfer Events
+- `executeSwap()` was returning `quote.amountOut` (the estimate from `getAmountsOut`) as the
+  actual output. For standalone swaps this is cosmetic, but LP entry calls `addLiquidityETH`
+  with the token amount received — if it's the estimate instead of the real amount, the tx
+  reverts because the balances don't match.
+- **Fix**: parse the last ERC-20 Transfer event in the receipt where `to` matches the signer.
+  The Transfer event topic is `keccak256('Transfer(address,address,uint256)')`. The actual
+  amount is `BigInt(log.data)`. Fall back to `quote.amountOut` only if no Transfer matches.
+
+### Don't Create Endpoints That Already Exist
+- The plan proposed `/api/swap/execute-direct` as a "unified" swap endpoint. But
+  `/api/swap/execute` already does quote → guardrails → execute in one call when no
+  pre-fetched quote is passed in the body. The existing endpoint was already the solution.
+- Before designing a new endpoint, read the existing handler code.
+
+### Guardrails Replace Confirmation Prompts
+- The original swap tool returned `requiresConfirmation: true` and waited for user input.
+  This is bad UX for an agent — the user already expressed intent by asking for the swap.
+- Guardrails (simulation, spending limit, fee reserve, protocol allowlist) ARE the safety
+  layer. If they pass, execute immediately. If they fail, return the failure reason. The
+  user never needs to click "confirm" — that's what guardrails are for.
+
+### Token Decimals Are Not Always 18
+- BSC stablecoins happen to be 18 decimals (unlike Ethereum USDC at 6), but other tokens
+  may vary. Vault executors and lending executors must call `decimals()` on the token
+  contract before computing `amountWei`.
+- Never hardcode `const TOKEN_DECIMALS = 18` in an executor. Parse the amount with the
+  actual decimals: `BigInt(whole) * 10n ** BigInt(decimals) + BigInt(frac)`.
+
+### Package Boundaries: Data Clients Go Near Executors
+- The Beefy API client fetches vault addresses needed by the vault executor. If the client
+  lives in `packages/ai/` and the executor in `packages/blockchain/`, the server has to
+  import from both and manually wire them. Worse, if `blockchain` needs to call `ai`,
+  you get a circular dependency.
+- **Fix**: put API clients in the same package as the executor that uses them. Beefy client
+  → `packages/blockchain/src/yield/beefy.ts`, right next to the vault executor. The server
+  resolves the address (via the client) and passes it to the executor as a plain parameter.
+
+### Venus vToken Resolution: Match by Address, Not Symbol
+- `vToken.underlying()` returns a contract address, not a symbol string. Calling
+  `symbol()` on each underlying to match against a user-provided symbol is an extra RPC
+  call per market and fragile (symbol strings vary: "WBNB" vs "Wrapped BNB").
+- **Fix**: compare `underlying().toLowerCase()` against known `SAFE_TOKENS` addresses.
+  The resolver maps `underlyingAddress → vTokenAddress`. Cache the full map for 30 minutes
+  since markets rarely change.

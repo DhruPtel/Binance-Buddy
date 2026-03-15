@@ -39,7 +39,7 @@ Monorepo with 8 packages: core, blockchain, ai, buddy, strategies, extension, te
 - ALWAYS simulate via eth_call before submitting any transaction
 - ALWAYS keep 0.005 BNB reserved for gas fees
 - ALWAYS check token allowance and approve() before swaps
-- ALWAYS show trade confirmation to user before executing
+- Guardrails ARE the safety layer — execute immediately if they pass, no confirmation prompt
 - Normal mode: max 1% slippage. Trenches: max 15%
 
 ### Naming
@@ -56,6 +56,10 @@ Read `packages/core/src/types.ts` first, then:
 - Tokens: `packages/blockchain/src/tokens.ts`
 - History: `packages/blockchain/src/history.ts`
 - DEX: `packages/blockchain/src/dex/executor.ts`
+- Yield vaults: `packages/blockchain/src/yield/vault-executor.ts`
+- LP: `packages/blockchain/src/lp/liquidity-executor.ts`
+- Lending: `packages/blockchain/src/lending/lending-executor.ts`
+- ABIs: `packages/blockchain/src/abis.ts`
 
 ### AI Agent
 Read `packages/core/src/types.ts` first, then:

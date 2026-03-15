@@ -1,10 +1,41 @@
 # Binance Buddy — Progress
 
 ## Current State
-Phase 3 Research complete. 8 packages fully built and typechecking clean.
+Phase 4 Execution Bridge complete. 8 packages fully built and typechecking clean.
 19/19 tests pass. Extension built to dist/.
-Dune deep research pipeline built but queries return limited data — needs decoded
-protocol-specific tables (e.g. venus_bnb.*) instead of raw bnb.transactions. Parked.
+Research → Execution pipeline fully wired: every pool row has a context-appropriate
+action button (Swap/Deposit/Supply/Add Liquidity) that executes immediately via
+agent wallet when guardrails pass.
+
+## Phase 4 Execution Bridge (Mar 14)
+- 4A: swap_tokens tool auto-executes via agent wallet (no confirmation prompt);
+  [Swap →] button on research pool rows; deadline fixed to block.timestamp + 300
+- LE-2: Dashboard trade panel unified to single-step — removed two-step quote→confirm
+  flow, single "Swap" button calls /api/swap/execute directly
+- LE-3: Shared awardXpForAction(source) helper replaces inline XP logic in /api/chat
+  and /api/swap/execute; new XP sources: vault_deposit (25), lp_entry (30),
+  lending_supply (20) added to XPSource union and XP_REWARDS
+- LE-4: BNB balance refreshed via getBnbBalance() after every successful execution,
+  included in response (lightweight — no full scanWallet)
+- 4B: Beefy vault deposits — packages/blockchain/src/abis.ts (shared ABI registry),
+  packages/blockchain/src/yield/beefy.ts (Beefy API client, BSC vaults, 1hr cache),
+  packages/blockchain/src/yield/vault-executor.ts (prepareVaultDeposit + executeVaultDeposit,
+  reads decimals() from want token), POST /api/vault/execute endpoint,
+  [Deposit →] button on yield/staking pool rows
+- pre-4C: executeSwap() now parses actual output amount from Transfer events in receipt
+  (was returning quote.amountOut estimate — broke LP entry which needs real amounts)
+- 4C: LP transactions — packages/blockchain/src/lp/liquidity-executor.ts (executeLPEntry:
+  swap half BNB → approve token → addLiquidityETH with actual swap output, multi-step
+  status tracking, block.timestamp + 300 deadline), POST /api/lp/execute endpoint,
+  [Add Liquidity →] button on LP pool rows with 3-step progress UI
+- 4D: Venus lending supply — packages/blockchain/src/lending/lending-executor.ts
+  (resolveVToken via Comptroller.getAllMarkets() + vToken.underlying() matched by address,
+  executeLendingSupply: approve + mint, reads decimals()), POST /api/lending/supply/execute,
+  GET /api/lending/health/:address, [Supply →] button on lending pool rows
+- Pool row action buttons by pool type: lending → Supply, lp → Add Liquidity,
+  yield/staking → Deposit, fallback → Swap
+- Plan: PHASE4_EXECUTION_BRIDGE.md (v3) — dropped LE-5/6/7 as pre-work, scoped 4D to
+  supply-only (borrow deferred), fixed package boundaries
 
 ## Phase 2 Research Bugfixes (Mar 13)
 - Fixed regex escaping in template literal for strategy brief markdown rendering
@@ -93,7 +124,7 @@ protocol-specific tables (e.g. venus_bnb.*) instead of raw bnb.transactions. Par
 | Package | Status | Key Files |
 |---|---|---|
 | @binancebuddy/core | ✅ Complete | types.ts, constants.ts |
-| @binancebuddy/blockchain | ✅ Complete | provider, tokens, scanner, history, dex/*, keystore |
+| @binancebuddy/blockchain | ✅ Complete | provider, tokens, scanner, history, dex/*, yield/*, lp/*, lending/*, keystore, abis |
 | @binancebuddy/buddy | ✅ Complete | xp, evolution, mood |
 | @binancebuddy/ai | ✅ Complete | agent, research, tools/*, prompts/system |
 | @binancebuddy/strategies | ✅ Complete | trenches/sniper, trenches/farms, risk |
