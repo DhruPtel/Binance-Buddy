@@ -1820,7 +1820,9 @@ function renderPoolRow(pool, protocolName) {
   var apyCls = apyCapped ? 'pool-apy apy-capped' : 'pool-apy';
   var swapToken = poolSwapToken(pool.symbol);
   var actionBtn;
-  if (pool.poolType === 'yield' || pool.poolType === 'staking') {
+  if (pool.poolType === 'lending') {
+    actionBtn = '<button class="pool-swap-btn" onclick="lendingSupply(\\'' + escapeHtml(swapToken) + '\\')">Supply →</button>';
+  } else if (pool.poolType === 'yield' || pool.poolType === 'staking') {
     actionBtn = '<button class="pool-swap-btn" onclick="vaultDeposit(\\'' + escapeHtml(swapToken) + '\\')">Deposit →</button>';
   } else {
     actionBtn = '<button class="pool-swap-btn" onclick="prefillTrade(\\'' + escapeHtml(swapToken) + '\\')">Swap →</button>';
@@ -2353,6 +2355,52 @@ function vaultDeposit(token) {
   .catch(function(e) {
     resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
     log('ERROR', 'Vault deposit error: ' + e.message);
+  });
+}
+
+// =============================================================================
+// Lending Supply
+// =============================================================================
+function lendingSupply(token) {
+  var amount = prompt('Supply amount for ' + token + ':');
+  if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
+  var resEl = document.getElementById('tx-result');
+  resEl.innerHTML = '<span class="spinner"></span> Supplying ' + escapeHtml(amount) + ' ' + escapeHtml(token) + ' to Venus...';
+  resEl.style.display = 'block';
+  document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  log('LENDING', 'Supplying ' + amount + ' ' + token);
+
+  fetch('/api/lending/supply/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token, amount: amount })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.error && !d.success) {
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Supply Failed</div>' +
+        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error) + '</div>';
+      log('ERROR', 'Lending supply failed: ' + d.error);
+      return;
+    }
+    if (d.success) {
+      var txLink = 'https://bscscan.com/tx/' + d.txHash;
+      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">Supply Executed</div>' +
+        '<div class="text-sm">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + '</a></div>' +
+        '<div class="text-sm text-sec">Supplied: ' + escapeHtml(d.amountSupplied) + ' ' + escapeHtml(token) + '</div>' +
+        '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
+      log('LENDING', 'Supply success! Tx: ' + d.txHash.slice(0,10) + '...');
+      if (d.buddyState) updateBuddyPanel(d.buddyState);
+      loadHeader();
+    } else {
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Supply Failed</div>' +
+        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
+      log('ERROR', 'Lending supply failed: ' + (d.error || 'unknown'));
+    }
+  })
+  .catch(function(e) {
+    resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
+    log('ERROR', 'Lending supply error: ' + e.message);
   });
 }
 
