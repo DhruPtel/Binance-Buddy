@@ -932,6 +932,8 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .pool-il.low,.pool-il.none { background:rgba(14,203,129,0.1); color:var(--green); }
   .pool-il.medium { background:rgba(255,140,0,0.1); color:var(--orange); }
   .pool-il.high { background:rgba(246,70,93,0.1); color:var(--red); }
+  .pool-swap-btn { font-size:11px; padding:3px 8px; background:rgba(240,185,11,0.12); color:var(--gold); border:1px solid rgba(240,185,11,0.3); border-radius:4px; cursor:pointer; white-space:nowrap; transition:background 0.15s; }
+  .pool-swap-btn:hover { background:rgba(240,185,11,0.25); }
   .section-header { font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--text-sec); text-transform:uppercase; margin:10px 0 6px; }
   .strategy-brief { background:rgba(24,144,255,0.06); border:1px solid rgba(24,144,255,0.15); border-radius:8px; padding:10px 12px; font-size:13px; line-height:1.55; margin-bottom:12px; }
   .risk-badges { display:flex; gap:8px; flex-wrap:wrap; }
@@ -1068,7 +1070,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     </div>
 
     <!-- Trade -->
-    <div class="card">
+    <div class="card" id="trade-card">
       <h2>Trade (Agent Wallet)</h2>
       <div class="trade-inputs">
         <div>
@@ -1677,6 +1679,16 @@ function loadDeepDive(slug) {
     });
 }
 
+function poolSwapToken(symbol) {
+  // For LP pairs like "CAKE-BNB", target the non-BNB token.
+  // For single tokens, use as-is.
+  var parts = symbol.split('-');
+  if (parts.length > 1) {
+    return parts[0].trim() === 'BNB' ? parts[1].trim() : parts[0].trim();
+  }
+  return symbol.trim();
+}
+
 function renderPoolRow(pool, protocolName) {
   var ilCls = pool.ilRisk === 'none' || pool.ilRisk === 'low' ? 'low' : pool.ilRisk === 'medium' ? 'medium' : 'high';
   var ilLabel = pool.ilRisk === 'none' ? 'No IL' : 'IL: ' + pool.ilRisk;
@@ -1687,12 +1699,14 @@ function renderPoolRow(pool, protocolName) {
   var apyCapped = pool.apy >= 500;
   var apyStr = apyCapped ? '500%+ ⚠️' : pool.apy.toFixed(1) + '%';
   var apyCls = apyCapped ? 'pool-apy apy-capped' : 'pool-apy';
+  var swapToken = poolSwapToken(pool.symbol);
   return '<div class="pool-row ' + (pool.isHighlighted ? 'highlighted' : 'other') + '">' +
     '<span class="pool-symbol">' + escapeHtml(displaySymbol) + '</span>' +
     '<span class="' + apyCls + '">' + apyStr + '</span>' +
     '<span class="pool-tvl">' + formatTvl(pool.tvlUsd) + '</span>' +
     '<span class="pool-il ' + ilCls + '">' + ilLabel + '</span>' +
     '<span class="text-sec" style="font-size:10px">' + pool.poolType + '</span>' +
+    '<button class="pool-swap-btn" onclick="prefillTrade(\'' + escapeHtml(swapToken) + '\')">Swap →</button>' +
     '</div>';
 }
 
@@ -2216,6 +2230,25 @@ function tradeExecute() {
     resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
     log('ERROR', 'Execute error: ' + e.message);
   });
+}
+
+// Pre-fill the trade panel from a pool row [Swap →] button and auto-trigger quote.
+function prefillTrade(token) {
+  document.getElementById('trade-from').value = 'BNB';
+  document.getElementById('trade-to').value = token;
+  document.getElementById('quote-card').style.display = 'none';
+  document.getElementById('trade-actions').style.display = 'none';
+  document.getElementById('tx-result').style.display = 'none';
+  document.getElementById('trade-error').style.display = 'none';
+  _pendingQuote = null;
+  document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  var amountEl = document.getElementById('trade-amount');
+  if (amountEl.value && parseFloat(amountEl.value) > 0) {
+    tradeGetQuote();
+  } else {
+    amountEl.focus();
+  }
+  log('TRADE', 'Pre-filled from research: BNB → ' + token);
 }
 
 // =============================================================================
