@@ -24,6 +24,7 @@ import {
   executeVaultDeposit,
   executeLendingSupply,
   getAccountLiquidity,
+  executeLPEntry,
 } from '@binancebuddy/blockchain';
 import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS } from '@binancebuddy/core';
 import type { BuddyState, AgentContext, SwapParams, XPSource } from '@binancebuddy/core';
@@ -737,6 +738,59 @@ app.get('/api/lending/health/:address', async (req, res) => {
       error: result.error.toString(),
       liquidityUsd: Number(result.liquidity) / 1e18,
       shortfallUsd: Number(result.shortfall) / 1e18,
+    }));
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// LP Routes (PancakeSwap V2 liquidity via agent wallet)
+// ---------------------------------------------------------------------------
+
+app.post('/api/lp/execute', async (req, res) => {
+  if (!agentWallet) {
+    res.status(503).json({ error: 'Agent wallet not configured.' });
+    return;
+  }
+
+  const { token, amountBnb, slippageBps = 100 } = req.body as {
+    token?: string;
+    amountBnb?: string;
+    slippageBps?: number;
+  };
+
+  if (!token || !amountBnb) {
+    res.status(400).json({ error: 'token and amountBnb are required' });
+    return;
+  }
+
+  try {
+    const tokenAddress = resolveToken(token);
+    const bnbPrice = await getBnbPriceUsd(process.env.COINGECKO_API_KEY || undefined);
+    const signer = agentWallet.connect(provider);
+
+    const result = await executeLPEntry(
+      provider,
+      signer,
+      tokenAddress,
+      amountBnb,
+      slippageBps,
+      bnbPrice,
+    );
+
+    if (result.success) {
+      awardXpForAction('lp_entry');
+    }
+
+    const freshBnb = result.success
+      ? await getBnbBalance(provider, agentWallet.address)
+      : undefined;
+
+    res.type('application/json').send(safeStringify({
+      ...result,
+      buddyState,
+      ...(freshBnb !== undefined ? { bnbBalance: freshBnb.toString(), bnbBalanceFormatted: Number(freshBnb) / 1e18 } : {}),
     }));
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -1822,6 +1876,8 @@ function renderPoolRow(pool, protocolName) {
   var actionBtn;
   if (pool.poolType === 'lending') {
     actionBtn = '<button class="pool-swap-btn" onclick="lendingSupply(\\'' + escapeHtml(swapToken) + '\\')">Supply →</button>';
+  } else if (pool.poolType === 'lp') {
+    actionBtn = '<button class="pool-swap-btn" onclick="addLiquidity(\\'' + escapeHtml(swapToken) + '\\')">Add Liquidity →</button>';
   } else if (pool.poolType === 'yield' || pool.poolType === 'staking') {
     actionBtn = '<button class="pool-swap-btn" onclick="vaultDeposit(\\'' + escapeHtml(swapToken) + '\\')">Deposit →</button>';
   } else {
@@ -2401,6 +2457,77 @@ function lendingSupply(token) {
   .catch(function(e) {
     resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
     log('ERROR', 'Lending supply error: ' + e.message);
+  });
+}
+
+// =============================================================================
+// Add Liquidity
+// =============================================================================
+function addLiquidity(token) {
+  var amountBnb = prompt('Total BNB to add as liquidity for BNB/' + token + ' (half will be swapped for ' + token + '):');
+  if (!amountBnb || isNaN(parseFloat(amountBnb)) || parseFloat(amountBnb) <= 0) return;
+  var resEl = document.getElementById('tx-result');
+  resEl.innerHTML = '<span class="spinner"></span> Adding liquidity: ' + escapeHtml(amountBnb) + ' BNB → BNB/' + escapeHtml(token) + ' LP...<br>' +
+    '<div class="text-sm text-sec" style="margin-top:6px">' +
+    '<div id="lp-step-0">Step 1/3: Swapping half BNB for ' + escapeHtml(token) + '...</div>' +
+    '<div id="lp-step-1" class="text-sec">Step 2/3: Approving token...</div>' +
+    '<div id="lp-step-2" class="text-sec">Step 3/3: Adding liquidity...</div>' +
+    '</div>';
+  resEl.style.display = 'block';
+  document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  log('LP', 'Adding liquidity: ' + amountBnb + ' BNB for BNB/' + token);
+
+  fetch('/api/lp/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token, amountBnb: amountBnb })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.error && !d.success) {
+      // Show step statuses if available
+      var stepHtml = '';
+      if (d.steps) {
+        for (var i = 0; i < d.steps.length; i++) {
+          var s = d.steps[i];
+          var icon = s.status === 'confirmed' ? '<span style="color:var(--green)">Done</span>' :
+                     s.status === 'failed' ? '<span style="color:var(--red)">Failed</span>' :
+                     '<span class="text-sec">Pending</span>';
+          stepHtml += '<div class="text-sm">' + icon + ' ' + escapeHtml(s.label) + '</div>';
+        }
+      }
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">LP Entry Failed</div>' +
+        stepHtml +
+        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error) + '</div>';
+      log('ERROR', 'LP failed: ' + d.error);
+      return;
+    }
+    if (d.success) {
+      var txLink = 'https://bscscan.com/tx/' + d.txHash;
+      var stepHtml2 = '';
+      if (d.steps) {
+        for (var j = 0; j < d.steps.length; j++) {
+          var st = d.steps[j];
+          stepHtml2 += '<div class="text-sm" style="color:var(--green)">Done: ' + escapeHtml(st.label) + '</div>';
+        }
+      }
+      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">Liquidity Added</div>' +
+        stepHtml2 +
+        '<div class="text-sm" style="margin-top:4px">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + '</a></div>' +
+        '<div class="text-sm text-sec">LP tokens received: ' + (d.lpTokensReceived || '0') + '</div>' +
+        '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
+      log('LP', 'Liquidity added! Tx: ' + d.txHash.slice(0,10) + '...');
+      if (d.buddyState) updateBuddyPanel(d.buddyState);
+      loadHeader();
+    } else {
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">LP Entry Failed</div>' +
+        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
+      log('ERROR', 'LP failed: ' + (d.error || 'unknown'));
+    }
+  })
+  .catch(function(e) {
+    resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
+    log('ERROR', 'LP error: ' + e.message);
   });
 }
 
