@@ -853,12 +853,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   /* Trade */
   .trade-inputs { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 8px; align-items: end; margin-bottom: 12px; }
   .trade-arrow { text-align: center; color: var(--text-tertiary); font-size: 18px; padding-bottom: 4px; }
-  .quote-card { background: var(--bg-tertiary); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 10px; display: none; }
-  .quote-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
-  .quote-amount { font-size: 18px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; }
-  .guardrail-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 0; }
-  .guardrail-pass { color: var(--green); } .guardrail-fail { color: var(--red); }
-  .trade-actions { display: flex; gap: 8px; }
   .tx-result { background: var(--bg-tertiary); border-radius: var(--radius-sm); padding: 12px; display: none; margin-top: 10px; }
   /* Trenches */
   .sniper-status { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; }
@@ -1085,26 +1079,9 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
       </div>
       <div class="input-row">
         <input type="number" id="trade-amount" placeholder="Amount (BNB)" step="0.001" min="0" style="flex:1" />
-        <button class="btn btn-sec" onclick="tradeGetQuote()">Quote →</button>
+        <button class="btn" onclick="tradeSwap()">Swap</button>
       </div>
       <div id="trade-error" class="text-sm" style="color:var(--red);margin-bottom:8px;display:none"></div>
-      <div class="quote-card" id="quote-card">
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
-          <span class="quote-amount" id="q-amount-in">—</span>
-          <span class="text-sec">→</span>
-          <span class="quote-amount" id="q-amount-out" style="color:var(--green)">—</span>
-        </div>
-        <div class="quote-row"><span class="text-sec">Price impact</span><span id="q-impact">—</span></div>
-        <div class="quote-row"><span class="text-sec">Gas</span><span id="q-gas">—</span></div>
-        <div class="quote-row"><span class="text-sec">Slippage</span><span id="q-slippage">—</span></div>
-        <div class="quote-row"><span class="text-sec">Route</span><span id="q-route" class="mono text-sm">—</span></div>
-        <div class="section-label">Guardrails</div>
-        <div id="q-guardrails"></div>
-      </div>
-      <div class="trade-actions" id="trade-actions" style="display:none">
-        <button class="btn btn-sec" style="flex:1" onclick="tradeCancel()">Cancel</button>
-        <button class="btn" style="flex:2" onclick="tradeExecute()">Confirm Swap ✓</button>
-      </div>
       <div class="tx-result" id="tx-result"></div>
     </div>
   </div>
@@ -1253,7 +1230,6 @@ var _wallet = '';
 var _mode = 'normal';
 var _chatHistory = [];
 var _buddyXp = 0;
-var _pendingQuote = null;
 var _sniperActive = false;
 var _agentWalletAddr = null;
 
@@ -2116,135 +2092,68 @@ function resetCB() {
 }
 
 // =============================================================================
-// Trade
+// Trade — single-step execute via /api/swap/execute
 // =============================================================================
-function tradeGetQuote() {
+function tradeSwap() {
   var tokenIn = document.getElementById('trade-from').value.trim() || 'BNB';
   var tokenOut = document.getElementById('trade-to').value.trim();
   var amountStr = document.getElementById('trade-amount').value.trim();
   var errEl = document.getElementById('trade-error');
+  var resEl = document.getElementById('tx-result');
   errEl.style.display = 'none';
+  resEl.style.display = 'none';
   if (!tokenOut || !amountStr) { errEl.textContent = 'Fill in all fields'; errEl.style.display = 'block'; return; }
   var amount = parseFloat(amountStr);
   if (isNaN(amount) || amount <= 0) { errEl.textContent = 'Invalid amount'; errEl.style.display = 'block'; return; }
   var slippage = _mode === 'trenches' ? 1500 : 100;
-  log('TRADE', 'Getting quote: ' + amount + ' ' + tokenIn + ' → ' + tokenOut);
-  document.getElementById('quote-card').style.display = 'none';
-  document.getElementById('trade-actions').style.display = 'none';
-  document.getElementById('tx-result').style.display = 'none';
-  _pendingQuote = null;
 
-  fetch('/api/swap/quote', {
+  resEl.innerHTML = '<span class="spinner"></span> Executing ' + amount + ' ' + escapeHtml(tokenIn) + ' → ' + escapeHtml(tokenOut) + '...';
+  resEl.style.display = 'block';
+  log('TRADE', 'Swap: ' + amount + ' ' + tokenIn + ' → ' + tokenOut);
+
+  fetch('/api/swap/execute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tokenIn: tokenIn, tokenOut: tokenOut, amountBnb: amount, slippageBps: slippage })
   })
   .then(function(r) { return r.json(); })
   .then(function(d) {
-    if (d.error) { errEl.textContent = d.error; errEl.style.display = 'block'; log('ERROR', 'Quote: ' + d.error); return; }
-    _pendingQuote = d;
-    renderQuote(d, tokenIn, tokenOut, slippage);
-    log('TRADE', 'Quote: ' + formatNum(parseFloat(d.quote.amountIn) / 1e18) + ' ' + tokenIn + ' → ' + escapeHtml(tokenOut));
-  })
-  .catch(function(e) { errEl.textContent = e.message; errEl.style.display = 'block'; log('ERROR', 'Quote fetch: ' + e.message); });
-}
-
-function renderQuote(d, tokenIn, tokenOut, slippage) {
-  var q = d.quote;
-  var g = d.guardrail;
-  var amtIn = formatNum(parseFloat(q.amountIn) / 1e18);
-  var amtOut = formatNum(parseFloat(q.amountOut) / 1e18);
-  document.getElementById('q-amount-in').textContent = amtIn + ' ' + tokenIn;
-  document.getElementById('q-amount-out').textContent = amtOut + ' ' + tokenOut;
-  var impactPct = q.priceImpact || 0;
-  var impactColor = impactPct < 1 ? 'var(--green)' : impactPct < 3 ? 'var(--orange)' : 'var(--red)';
-  document.getElementById('q-impact').innerHTML = '<span style="color:' + impactColor + '">' + impactPct.toFixed(2) + '%</span>';
-  document.getElementById('q-gas').textContent = formatNum(parseFloat(q.gasCostBnb || '0')) + ' BNB ($' + (q.gasCostUsd || 0).toFixed(2) + ')';
-  document.getElementById('q-slippage').textContent = (slippage / 100).toFixed(1) + '% (' + (_mode === 'trenches' ? 'Trenches' : 'Normal') + ')';
-  document.getElementById('q-route').textContent = (q.path || []).join(' → ');
-  // Guardrails
-  var html = '';
-  if (g && g.checks) {
-    var checks = g.checks;
-    for (var k in checks) {
-      var pass = checks[k];
-      html += '<div class="guardrail-row ' + (pass ? 'guardrail-pass' : 'guardrail-fail') + '">' +
-              (pass ? '✅' : '❌') + ' ' + k + '</div>';
+    if (d.error && !d.success) {
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Swap Failed</div>' +
+        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error) + '</div>';
+      log('ERROR', 'Swap failed: ' + d.error);
+      return;
     }
-  }
-  document.getElementById('q-guardrails').innerHTML = html;
-  document.getElementById('quote-card').style.display = 'block';
-  if (g && g.passed) {
-    document.getElementById('trade-actions').style.display = 'flex';
-    log('TRADE', 'Guardrails PASSED — ready to execute');
-  } else {
-    log('TRADE', 'Guardrails FAILED: ' + (g ? g.failureReason : 'unknown'));
-  }
-}
-
-function tradeCancel() {
-  _pendingQuote = null;
-  document.getElementById('quote-card').style.display = 'none';
-  document.getElementById('trade-actions').style.display = 'none';
-  document.getElementById('tx-result').style.display = 'none';
-  log('TRADE', 'Swap cancelled by user');
-}
-
-function tradeExecute() {
-  if (!_pendingQuote) return;
-  var tokenIn = document.getElementById('trade-from').value.trim() || 'BNB';
-  var tokenOut = document.getElementById('trade-to').value.trim();
-  var amount = parseFloat(document.getElementById('trade-amount').value.trim());
-  var slippage = _mode === 'trenches' ? 1500 : 100;
-  document.getElementById('trade-actions').style.display = 'none';
-  var resEl = document.getElementById('tx-result');
-  resEl.innerHTML = '<span class="spinner"></span> Submitting to BSC Mainnet...';
-  resEl.style.display = 'block';
-  log('TRADE', 'Executing swap: ' + amount + ' ' + tokenIn + ' → ' + tokenOut);
-
-  fetch('/api/swap/execute', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tokenIn: tokenIn, tokenOut: tokenOut, amountBnb: amount, slippageBps: slippage, quote: _pendingQuote.quote })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    _pendingQuote = null;
     if (d.success) {
       var txLink = 'https://bscscan.com/tx/' + d.txHash;
-      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">✅ Swap Executed!</div>' +
-        '<div class="text-sm">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + ' ↗</a></div>' +
-        '<div class="text-sm text-sec">Amount out: ' + formatNum(parseFloat(d.amountOut) / 1e18) + ' ' + tokenOut + '</div>' +
-        '<div class="text-sm text-sec">Gas used: ' + d.gasUsed + '</div>';
+      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">Swap Executed</div>' +
+        '<div class="text-sm">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + '</a></div>' +
+        '<div class="text-sm text-sec">Received: ~' + formatNum(parseFloat(d.amountOut) / 1e18) + ' ' + escapeHtml(tokenOut) + '</div>' +
+        '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
       log('TRADE', 'Swap success! Tx: ' + d.txHash.slice(0,10) + '...');
       if (d.buddyState) updateBuddyPanel(d.buddyState);
-      loadHeader(); // refresh BNB balance
+      loadHeader();
     } else {
-      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">❌ Swap Failed</div>' +
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Swap Failed</div>' +
         '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
       log('ERROR', 'Swap failed: ' + (d.error || 'unknown'));
     }
   })
   .catch(function(e) {
-    _pendingQuote = null;
     resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
-    log('ERROR', 'Execute error: ' + e.message);
+    log('ERROR', 'Swap error: ' + e.message);
   });
 }
 
-// Pre-fill the trade panel from a pool row [Swap →] button and auto-trigger quote.
 function prefillTrade(token) {
   document.getElementById('trade-from').value = 'BNB';
   document.getElementById('trade-to').value = token;
-  document.getElementById('quote-card').style.display = 'none';
-  document.getElementById('trade-actions').style.display = 'none';
   document.getElementById('tx-result').style.display = 'none';
   document.getElementById('trade-error').style.display = 'none';
-  _pendingQuote = null;
   document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
   var amountEl = document.getElementById('trade-amount');
   if (amountEl.value && parseFloat(amountEl.value) > 0) {
-    tradeGetQuote();
+    tradeSwap();
   } else {
     amountEl.focus();
   }
