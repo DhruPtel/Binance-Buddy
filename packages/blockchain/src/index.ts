@@ -47,8 +47,10 @@ export { ERC20_ABI, BEEFY_VAULT_ABI } from './abis.js';
 export {
   findVaultForToken,
   findVaultByPlatform,
+  prepareVaultDeposit,
+  executeVaultDeposit,
 } from './yield/index.js';
-export type { BeefyVault } from './yield/index.js';
+export type { BeefyVault, VaultDepositResult, VaultDepositParams } from './yield/index.js';
 
 export {
   encryptPrivateKey,
