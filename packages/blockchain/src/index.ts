@@ -42,6 +42,14 @@ export {
 } from './dex/index.js';
 export type { GasEstimate } from './dex/index.js';
 
+export { ERC20_ABI, BEEFY_VAULT_ABI } from './abis.js';
+
+export {
+  findVaultForToken,
+  findVaultByPlatform,
+} from './yield/index.js';
+export type { BeefyVault } from './yield/index.js';
+
 export {
   encryptPrivateKey,
   decryptPrivateKey,
