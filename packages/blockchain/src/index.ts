@@ -42,7 +42,15 @@ export {
 } from './dex/index.js';
 export type { GasEstimate } from './dex/index.js';
 
-export { ERC20_ABI, BEEFY_VAULT_ABI, VENUS_VTOKEN_ABI, VENUS_COMPTROLLER_ABI } from './abis.js';
+export {
+  ERC20_ABI,
+  BEEFY_VAULT_ABI,
+  VENUS_VTOKEN_ABI,
+  VENUS_COMPTROLLER_ABI,
+  PANCAKESWAP_ROUTER_LP_ABI,
+  PANCAKESWAP_FACTORY_ABI,
+  PANCAKESWAP_PAIR_ABI,
+} from './abis.js';
 
 export {
   findVaultForToken,
@@ -51,6 +59,9 @@ export {
   executeVaultDeposit,
 } from './yield/index.js';
 export type { BeefyVault, VaultDepositResult, VaultDepositParams } from './yield/index.js';
+
+export { executeLPEntry } from './lp/index.js';
+export type { LPExecutionResult, LPExecutionStep } from './lp/index.js';
 
 export {
   resolveVToken,

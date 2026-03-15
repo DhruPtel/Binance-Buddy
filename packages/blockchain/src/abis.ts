@@ -27,6 +27,23 @@ export const VENUS_COMPTROLLER_ABI = [
   'function getAccountLiquidity(address account) external view returns (uint256, uint256, uint256)',
 ];
 
+export const PANCAKESWAP_ROUTER_LP_ABI = [
+  'function addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) external returns (uint amountA, uint amountB, uint liquidity)',
+  'function addLiquidityETH(address token, uint amountTokenDesired, uint amountTokenMin, uint amountETHMin, address to, uint deadline) external payable returns (uint amountToken, uint amountETH, uint liquidity)',
+];
+
+export const PANCAKESWAP_FACTORY_ABI = [
+  'function getPair(address tokenA, address tokenB) external view returns (address pair)',
+];
+
+export const PANCAKESWAP_PAIR_ABI = [
+  'function balanceOf(address owner) external view returns (uint256)',
+  'function totalSupply() external view returns (uint256)',
+  'function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)',
+  'function token0() external view returns (address)',
+  'function token1() external view returns (address)',
+];
+
 export const BEEFY_VAULT_ABI = [
   'function deposit(uint256 _amount) external',
   'function depositAll() external',
