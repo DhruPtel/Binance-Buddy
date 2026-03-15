@@ -21,7 +21,7 @@ import {
   getOrCreateAgentWallet,
 } from '@binancebuddy/blockchain';
 import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS } from '@binancebuddy/core';
-import type { BuddyState, AgentContext, SwapParams } from '@binancebuddy/core';
+import type { BuddyState, AgentContext, SwapParams, XPSource } from '@binancebuddy/core';
 import {
   startResearchLoop,
   getLatestReport,
@@ -105,6 +105,14 @@ function saveBuddyState(state: BuddyState): void {
 }
 
 let buddyState: BuddyState = loadBuddyState();
+
+function awardXpForAction(source: XPSource): BuddyState {
+  let updated = awardXp(buddyState, source);
+  updated = { ...updated, stage: xpToStage(updated.xp), trenchesUnlocked: updated.xp >= 500 };
+  buddyState = updated;
+  saveBuddyState(buddyState);
+  return buddyState;
+}
 
 // ---------------------------------------------------------------------------
 // Token symbol → address resolver
@@ -472,9 +480,8 @@ app.post('/api/chat', async (req, res) => {
 
     // Persist buddy XP awards
     if (result.xpAwarded > 0) {
-      let updated = awardXp(buddyState, 'chat_interaction');
-      updated = { ...updated, stage: xpToStage(updated.xp), trenchesUnlocked: updated.xp >= 500, lastInteraction: Date.now() };
-      buddyState = updated;
+      awardXpForAction('chat_interaction');
+      buddyState = { ...buddyState, lastInteraction: Date.now() };
       saveBuddyState(buddyState);
     }
 
@@ -586,12 +593,8 @@ app.post('/api/swap/execute', async (req, res) => {
     const signer = agentWallet.connect(provider);
     const swapResult = await executeSwap(provider, signer, params, swapQuote);
 
-    // Award XP for successful trade
     if (swapResult.success) {
-      let updated = awardXp(buddyState, 'trade_executed');
-      updated = { ...updated, stage: xpToStage(updated.xp), trenchesUnlocked: updated.xp >= 500 };
-      buddyState = updated;
-      saveBuddyState(buddyState);
+      awardXpForAction('trade_executed');
     }
 
     res.type('application/json').send(safeStringify({ ...swapResult, buddyState }));

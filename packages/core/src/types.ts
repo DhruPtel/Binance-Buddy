@@ -114,7 +114,10 @@ export type XPSource =
   | 'chat_interaction'
   | 'farm_entered'
   | 'snipe_success'
-  | 'achievement_unlocked';
+  | 'achievement_unlocked'
+  | 'vault_deposit'
+  | 'lp_entry'
+  | 'lending_supply';
 
 export interface BuddyState {
   creatureType: CreatureType;

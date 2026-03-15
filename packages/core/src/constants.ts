@@ -171,6 +171,9 @@ export const XP_REWARDS: Record<string, number> = {
   farm_entered: 12,
   snipe_success: 25,
   achievement_unlocked: 50,
+  vault_deposit: 25,
+  lp_entry: 30,
+  lending_supply: 20,
 };
 
 // ---------------------------------------------------------------------------
