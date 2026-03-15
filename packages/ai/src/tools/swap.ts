@@ -1,7 +1,6 @@
 // =============================================================================
-// swap_tokens — real PancakeSwap V2 quote via prepareSwap()
-// Returns quote + guardrail result for user confirmation.
-// Does NOT execute — execution requires explicit user confirm.
+// swap_tokens — PancakeSwap V2 swap via agent wallet
+// Pipeline: quote → guardrails → execute → return tx hash
 // =============================================================================
 
 import { parseUnits } from 'ethers';
@@ -14,7 +13,12 @@ import {
   MAX_SLIPPAGE_NORMAL_BPS,
   MAX_SLIPPAGE_TRENCHES_BPS,
 } from '@binancebuddy/core';
-import { createProvider, prepareSwap } from '@binancebuddy/blockchain';
+import {
+  createProvider,
+  prepareSwap,
+  executeSwap,
+  getOrCreateAgentWallet,
+} from '@binancebuddy/blockchain';
 
 // All BSC tokens (including SAFE_TOKENS) use 18 decimals
 const TOKEN_DECIMALS = 18;
@@ -22,10 +26,9 @@ const TOKEN_DECIMALS = 18;
 export const swapTokensTool: AgentTool = {
   name: 'swap_tokens',
   description:
-    'Get a real PancakeSwap V2 quote for swapping one token to another. ' +
-    'Returns the quote and guardrail check result for user confirmation — ' +
-    'does NOT execute automatically. Always show the quote and wait for explicit ' +
-    'user confirmation before proceeding with execution.',
+    'Execute a PancakeSwap V2 token swap using the agent wallet. ' +
+    'Gets a quote, runs guardrail checks (simulation, spending limit, fee reserve), ' +
+    'and if all checks pass, executes the swap immediately and returns the transaction hash.',
   parameters: {
     type: 'object',
     properties: {
@@ -108,15 +111,17 @@ export const swapTokensTool: AgentTool = {
     try {
       const provider = createProvider();
 
+      const swapParams = {
+        tokenIn: routerTokenIn,
+        tokenOut: routerTokenOut,
+        amountIn: amountInWei.toString(),
+        slippageBps,
+        recipient: context.walletState.address,
+      };
+
       const result = await prepareSwap(
         provider,
-        {
-          tokenIn: routerTokenIn,
-          tokenOut: routerTokenOut,
-          amountIn: amountInWei.toString(),
-          slippageBps,
-          recipient: context.walletState.address,
-        },
+        swapParams,
         BigInt(context.walletState.bnbBalance),
         context.guardrailConfig,
         bnbPriceUsd,
@@ -132,8 +137,35 @@ export const swapTokensTool: AgentTool = {
       const amountOutFormatted = (Number(BigInt(quote.amountOut)) / 1e18).toFixed(6);
       const amountOutMinFormatted = (Number(BigInt(quote.amountOutMin)) / 1e18).toFixed(6);
 
+      // If guardrails failed, return the quote with the failure reason
+      if (!guardrail.passed) {
+        return {
+          status: 'guardrail_blocked',
+          tokenIn: { symbol: tokenInRaw.toUpperCase(), address: inAddr },
+          tokenOut: { symbol: tokenOutRaw.toUpperCase(), address: outAddr },
+          amountIn: amountInDecimal,
+          amountOut: amountOutFormatted,
+          amountOutMin: amountOutMinFormatted,
+          slippageBps,
+          priceImpact: quote.priceImpact,
+          guardrail: {
+            passed: false,
+            failureReason: guardrail.failureReason,
+            checks: guardrail.checks,
+          },
+          mode: context.mode,
+        };
+      }
+
+      // Guardrails passed — execute the swap with the agent wallet
+      const { wallet } = getOrCreateAgentWallet(provider);
+      const signer = wallet.connect(provider);
+
+      const swapResult = await executeSwap(provider, signer, swapParams, quote);
+
       return {
-        status: guardrail.passed ? 'quote_ready' : 'guardrail_blocked',
+        status: swapResult.success ? 'executed' : 'execution_failed',
+        txHash: swapResult.txHash,
         tokenIn: { symbol: tokenInRaw.toUpperCase(), address: inAddr },
         tokenOut: { symbol: tokenOutRaw.toUpperCase(), address: outAddr },
         amountIn: amountInDecimal,
@@ -144,17 +176,17 @@ export const swapTokensTool: AgentTool = {
         path: quote.path,
         gasCostBnb: quote.gasCostBnb,
         gasCostUsd: quote.gasCostUsd.toFixed(2),
+        gasUsed: swapResult.gasUsed,
         guardrail: {
-          passed: guardrail.passed,
-          failureReason: guardrail.failureReason,
+          passed: true,
           checks: guardrail.checks,
         },
-        requiresConfirmation: guardrail.passed,
+        error: swapResult.error,
         mode: context.mode,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { error: `Quote failed: ${msg.slice(0, 200)}` };
+      return { error: `Swap failed: ${msg.slice(0, 200)}` };
     }
   },
 };

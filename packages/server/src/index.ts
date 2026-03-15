@@ -1706,7 +1706,7 @@ function renderPoolRow(pool, protocolName) {
     '<span class="pool-tvl">' + formatTvl(pool.tvlUsd) + '</span>' +
     '<span class="pool-il ' + ilCls + '">' + ilLabel + '</span>' +
     '<span class="text-sec" style="font-size:10px">' + pool.poolType + '</span>' +
-    '<button class="pool-swap-btn" onclick="prefillTrade(\'' + escapeHtml(swapToken) + '\')">Swap →</button>' +
+    '<button class="pool-swap-btn" onclick="prefillTrade(\\'' + escapeHtml(swapToken) + '\\')">Swap →</button>' +
     '</div>';
 }
 
