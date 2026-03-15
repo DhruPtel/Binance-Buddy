@@ -19,6 +19,9 @@ import {
   prepareSwap,
   executeSwap,
   getOrCreateAgentWallet,
+  findVaultForToken,
+  findVaultByPlatform,
+  executeVaultDeposit,
 } from '@binancebuddy/blockchain';
 import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS } from '@binancebuddy/core';
 import type { BuddyState, AgentContext, SwapParams, XPSource } from '@binancebuddy/core';
@@ -604,6 +607,65 @@ app.post('/api/swap/execute', async (req, res) => {
 
     res.type('application/json').send(safeStringify({
       ...swapResult,
+      buddyState,
+      ...(freshBnb !== undefined ? { bnbBalance: freshBnb.toString(), bnbBalanceFormatted: Number(freshBnb) / 1e18 } : {}),
+    }));
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Vault Routes (Beefy deposit via agent wallet)
+// ---------------------------------------------------------------------------
+
+app.post('/api/vault/execute', async (req, res) => {
+  if (!agentWallet) {
+    res.status(503).json({ error: 'Agent wallet not configured.' });
+    return;
+  }
+
+  const { token, platform, amount } = req.body as {
+    token?: string;
+    platform?: string;
+    amount?: string;
+  };
+
+  if (!token || !amount) {
+    res.status(400).json({ error: 'token and amount are required' });
+    return;
+  }
+
+  try {
+    // Resolve vault address via Beefy
+    const vault = platform
+      ? await findVaultByPlatform(platform, token)
+      : await findVaultForToken(token);
+
+    if (!vault) {
+      res.status(404).json({ error: `No active Beefy vault found for ${token}${platform ? ` on ${platform}` : ''} on BSC` });
+      return;
+    }
+
+    const signer = agentWallet.connect(provider);
+    const result = await executeVaultDeposit(provider, signer, {
+      vaultAddress: vault.earnContractAddress,
+      wantTokenAddress: vault.tokenAddress,
+      amount,
+    });
+
+    if (result.success) {
+      awardXpForAction('vault_deposit');
+    }
+
+    // Refresh BNB balance after execution
+    const freshBnb = result.success
+      ? await getBnbBalance(provider, agentWallet.address)
+      : undefined;
+
+    res.type('application/json').send(safeStringify({
+      ...result,
+      vault: { id: vault.id, name: vault.name, platform: vault.platformId },
       buddyState,
       ...(freshBnb !== undefined ? { bnbBalance: freshBnb.toString(), bnbBalanceFormatted: Number(freshBnb) / 1e18 } : {}),
     }));
@@ -1688,13 +1750,19 @@ function renderPoolRow(pool, protocolName) {
   var apyStr = apyCapped ? '500%+ ⚠️' : pool.apy.toFixed(1) + '%';
   var apyCls = apyCapped ? 'pool-apy apy-capped' : 'pool-apy';
   var swapToken = poolSwapToken(pool.symbol);
+  var actionBtn;
+  if (pool.poolType === 'yield' || pool.poolType === 'staking') {
+    actionBtn = '<button class="pool-swap-btn" onclick="vaultDeposit(\\'' + escapeHtml(swapToken) + '\\')">Deposit →</button>';
+  } else {
+    actionBtn = '<button class="pool-swap-btn" onclick="prefillTrade(\\'' + escapeHtml(swapToken) + '\\')">Swap →</button>';
+  }
   return '<div class="pool-row ' + (pool.isHighlighted ? 'highlighted' : 'other') + '">' +
     '<span class="pool-symbol">' + escapeHtml(displaySymbol) + '</span>' +
     '<span class="' + apyCls + '">' + apyStr + '</span>' +
     '<span class="pool-tvl">' + formatTvl(pool.tvlUsd) + '</span>' +
     '<span class="pool-il ' + ilCls + '">' + ilLabel + '</span>' +
     '<span class="text-sec" style="font-size:10px">' + pool.poolType + '</span>' +
-    '<button class="pool-swap-btn" onclick="prefillTrade(\\'' + escapeHtml(swapToken) + '\\')">Swap →</button>' +
+    actionBtn +
     '</div>';
 }
 
@@ -2170,6 +2238,53 @@ function prefillTrade(token) {
     amountEl.focus();
   }
   log('TRADE', 'Pre-filled from research: BNB → ' + token);
+}
+
+// =============================================================================
+// Vault Deposits
+// =============================================================================
+function vaultDeposit(token) {
+  var amount = prompt('Deposit amount for ' + token + ':');
+  if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
+  var resEl = document.getElementById('tx-result');
+  resEl.innerHTML = '<span class="spinner"></span> Depositing ' + escapeHtml(amount) + ' ' + escapeHtml(token) + ' into Beefy vault...';
+  resEl.style.display = 'block';
+  document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  log('VAULT', 'Depositing ' + amount + ' ' + token);
+
+  fetch('/api/vault/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token, amount: amount })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.error && !d.success) {
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Deposit Failed</div>' +
+        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error) + '</div>';
+      log('ERROR', 'Vault deposit failed: ' + d.error);
+      return;
+    }
+    if (d.success) {
+      var txLink = 'https://bscscan.com/tx/' + d.txHash;
+      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">Vault Deposit Executed</div>' +
+        '<div class="text-sm">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + '</a></div>' +
+        '<div class="text-sm text-sec">Deposited: ' + escapeHtml(d.amountDeposited) + ' ' + escapeHtml(token) + '</div>' +
+        '<div class="text-sm text-sec">Vault: ' + escapeHtml(d.vault.name) + ' (' + escapeHtml(d.vault.platform) + ')</div>' +
+        '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
+      log('VAULT', 'Deposit success! Tx: ' + d.txHash.slice(0,10) + '...');
+      if (d.buddyState) updateBuddyPanel(d.buddyState);
+      loadHeader();
+    } else {
+      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Deposit Failed</div>' +
+        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
+      log('ERROR', 'Vault deposit failed: ' + (d.error || 'unknown'));
+    }
+  })
+  .catch(function(e) {
+    resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
+    log('ERROR', 'Vault deposit error: ' + e.message);
+  });
 }
 
 // =============================================================================
