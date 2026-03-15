@@ -14,6 +14,7 @@
 
 import {
   Contract,
+  id as keccak256,
   type Provider,
   type Signer,
   type TransactionRequest,
@@ -298,9 +299,22 @@ export async function executeSwap(
       };
     }
 
-    // Parse actual output from Transfer event (last Transfer log is the output)
-    // Fallback to amountOutMin if parsing fails
-    const amountOut = quote.amountOut;
+    // Parse actual output from the last Transfer event in the receipt.
+    // The final Transfer is the output token arriving at the recipient.
+    // Fallback to quote.amountOut if parsing fails.
+    const TRANSFER_TOPIC = keccak256('Transfer(address,address,uint256)');
+    let amountOut = quote.amountOut;
+    for (let i = receipt.logs.length - 1; i >= 0; i--) {
+      const log = receipt.logs[i];
+      if (log.topics[0] === TRANSFER_TOPIC && log.topics.length >= 3) {
+        // topic[2] is the 'to' address — confirm it's going to our signer
+        const toAddr = '0x' + log.topics[2].slice(26);
+        if (toAddr.toLowerCase() === signerAddress.toLowerCase()) {
+          amountOut = BigInt(log.data).toString();
+          break;
+        }
+      }
+    }
 
     return {
       success: true,
