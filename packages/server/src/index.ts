@@ -597,7 +597,16 @@ app.post('/api/swap/execute', async (req, res) => {
       awardXpForAction('trade_executed');
     }
 
-    res.type('application/json').send(safeStringify({ ...swapResult, buddyState }));
+    // Refresh BNB balance after execution (lightweight — no full scanWallet)
+    const freshBnb = swapResult.success
+      ? await getBnbBalance(provider, agentWallet.address)
+      : undefined;
+
+    res.type('application/json').send(safeStringify({
+      ...swapResult,
+      buddyState,
+      ...(freshBnb !== undefined ? { bnbBalance: freshBnb.toString(), bnbBalanceFormatted: Number(freshBnb) / 1e18 } : {}),
+    }));
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
