@@ -22,6 +22,8 @@ import {
   findVaultForToken,
   findVaultByPlatform,
   executeVaultDeposit,
+  executeLendingSupply,
+  getAccountLiquidity,
 } from '@binancebuddy/blockchain';
 import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS } from '@binancebuddy/core';
 import type { BuddyState, AgentContext, SwapParams, XPSource } from '@binancebuddy/core';
@@ -668,6 +670,73 @@ app.post('/api/vault/execute', async (req, res) => {
       vault: { id: vault.id, name: vault.name, platform: vault.platformId },
       buddyState,
       ...(freshBnb !== undefined ? { bnbBalance: freshBnb.toString(), bnbBalanceFormatted: Number(freshBnb) / 1e18 } : {}),
+    }));
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Lending Routes (Venus supply via agent wallet)
+// ---------------------------------------------------------------------------
+
+const VENUS_COMPTROLLER = '0xfD36E2c2a6789Db23113685031d7F16329158384';
+
+app.post('/api/lending/supply/execute', async (req, res) => {
+  if (!agentWallet) {
+    res.status(503).json({ error: 'Agent wallet not configured.' });
+    return;
+  }
+
+  const { token, amount } = req.body as {
+    token?: string;
+    amount?: string;
+  };
+
+  if (!token || !amount) {
+    res.status(400).json({ error: 'token and amount are required' });
+    return;
+  }
+
+  // Resolve token symbol → address
+  const tokenAddress = resolveToken(token);
+
+  try {
+    const signer = agentWallet.connect(provider);
+    const result = await executeLendingSupply(
+      provider,
+      signer,
+      VENUS_COMPTROLLER,
+      tokenAddress,
+      amount,
+    );
+
+    if (result.success) {
+      awardXpForAction('lending_supply');
+    }
+
+    const freshBnb = result.success
+      ? await getBnbBalance(provider, agentWallet.address)
+      : undefined;
+
+    res.type('application/json').send(safeStringify({
+      ...result,
+      buddyState,
+      ...(freshBnb !== undefined ? { bnbBalance: freshBnb.toString(), bnbBalanceFormatted: Number(freshBnb) / 1e18 } : {}),
+    }));
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/lending/health/:address', async (req, res) => {
+  const { address } = req.params;
+  try {
+    const result = await getAccountLiquidity(provider, VENUS_COMPTROLLER, address);
+    res.type('application/json').send(safeStringify({
+      error: result.error.toString(),
+      liquidityUsd: Number(result.liquidity) / 1e18,
+      shortfallUsd: Number(result.shortfall) / 1e18,
     }));
   } catch (e) {
     res.status(500).json({ error: String(e) });
