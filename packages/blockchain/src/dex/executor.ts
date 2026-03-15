@@ -23,7 +23,6 @@ import {
   WBNB_ADDRESS,
   NATIVE_BNB_ADDRESS,
   BNB_FEE_RESERVE,
-  DEFAULT_DEADLINE_SECONDS,
   DEFAULT_GAS_LIMIT_SWAP,
 } from '@binancebuddy/core';
 import type {
@@ -115,13 +114,15 @@ function buildFailureReason(
 // Build unsigned transaction
 // ---------------------------------------------------------------------------
 
-function buildSwapTx(
+async function buildSwapTx(
+  provider: Provider,
   quote: SwapQuote,
   senderAddress: string,
   config: GuardrailConfig,
-): TransactionRequest {
+): Promise<TransactionRequest> {
   const router = new Contract(PANCAKESWAP_V2_ROUTER, ROUTER_ABI);
-  const deadline = Math.floor(Date.now() / 1000) + DEFAULT_DEADLINE_SECONDS;
+  const block = await provider.getBlock('latest');
+  const deadline = block!.timestamp + 300; // 5 min from chain time
   const amountIn = BigInt(quote.amountIn);
   const amountOutMin = BigInt(quote.amountOutMin);
 
@@ -197,7 +198,7 @@ export async function prepareSwap(
 
   // 2. Build the tx to simulate
   const senderAddress = params.recipient ?? '0x0000000000000000000000000000000000000001';
-  const tx = buildSwapTx(quote, senderAddress, config);
+  const tx = await buildSwapTx(provider, quote, senderAddress, config);
 
   // 3. Simulate
   const simulation = await simulateTransaction(provider, {
@@ -243,18 +244,10 @@ export async function executeSwap(
     }
   }
 
-  // Build and submit the swap tx
-  const tx = buildSwapTx(quote, signerAddress, {
-    maxTransactionValueBnb: 0,
-    maxSlippageBps: params.slippageBps,
-    bnbFeeReserve: BNB_FEE_RESERVE,
-    circuitBreakerThreshold: 3,
-    requireApprovalAboveBnb: 0,
-  });
-
   try {
     const router = new Contract(PANCAKESWAP_V2_ROUTER, ROUTER_ABI, signer);
-    const deadline = Math.floor(Date.now() / 1000) + DEFAULT_DEADLINE_SECONDS;
+    const block = await provider.getBlock('latest');
+    const deadline = block!.timestamp + 300; // 5 min from chain time
     const amountIn = BigInt(quote.amountIn);
     const amountOutMin = BigInt(quote.amountOutMin);
 
