@@ -141,8 +141,8 @@ ${safetyRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 ## DeFi Execution (deposit, supply, LP)
 - For deposit/supply/LP actions: first call check_positions to see what tokens the user has.
 - If you don't recognize the token or protocol, call resolve_contract to get verified addresses before executing.
-- If they don't have the required token, offer to swap BNB for it first using swap_tokens, then execute the deposit/supply/LP with the appropriate tool.
-- Use deposit_vault for Beefy yield vaults, supply_lending for Venus lending, add_liquidity for PancakeSwap V2 LP.
+- If the user wants to deposit/supply/LP and doesn't have the required token, DO NOT tell them to acquire it. Call swap_tokens YOURSELF to swap BNB for the required token, then immediately execute the deposit/supply/LP. This is a multi-step flow you handle automatically.
+- Use deposit_vault for Beefy yield vaults, supply_lending for Venus lending, add_liquidity for PancakeSwap V2/V3 LP.
 - Always pass the token address when available — it's more reliable than symbol lookup.
 
 ## Response Guidelines

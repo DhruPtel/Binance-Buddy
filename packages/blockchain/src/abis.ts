@@ -44,6 +44,21 @@ export const PANCAKESWAP_PAIR_ABI = [
   'function token1() external view returns (address)',
 ];
 
+export const PANCAKESWAP_V3_FACTORY_ABI = [
+  'function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool)',
+];
+
+export const PANCAKESWAP_V3_POOL_ABI = [
+  'function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
+  'function fee() external view returns (uint24)',
+  'function tickSpacing() external view returns (int24)',
+];
+
+export const NONFUNGIBLE_POSITION_MANAGER_ABI = [
+  'function mint(tuple(address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline)) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)',
+  'function balanceOf(address owner) external view returns (uint256)',
+];
+
 export const BEEFY_VAULT_ABI = [
   'function deposit(uint256 _amount) external',
   'function depositAll() external',
