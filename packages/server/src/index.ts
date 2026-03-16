@@ -2243,12 +2243,15 @@ function _b3dLoadModel(stage) {
 function _b3dLoop() {
   requestAnimationFrame(_b3dLoop);
   if (!_b3dRenderer || !_b3dScene || !_b3dCamera) return;
+  var t = _b3dClock ? _b3dClock.getElapsedTime() : 0;
   if (_b3dModel) {
     var baseY = _b3dModel.userData.baseY || 0;
-    // Event: spin on trade
+    // Event: spin on trade — accumulate rotation; else idle look-around
     if (_b3dAnimState.spin > 0) {
       _b3dModel.rotation.y += 0.18;
       _b3dAnimState.spin = Math.max(0, _b3dAnimState.spin - 0.02);
+    } else {
+      _b3dModel.rotation.y = Math.PI + Math.sin(t * 0.5) * 0.15;
     }
     // Event: bounce on XP gain
     if (_b3dAnimState.bounce > 0) {
