@@ -6,7 +6,7 @@
 import { parseUnits } from 'ethers';
 import type { AgentTool, AgentContext } from '@binancebuddy/core';
 import {
-  SAFE_TOKENS,
+  resolveToken,
   NATIVE_BNB_ADDRESS,
   WBNB_ADDRESS,
   BNB_FEE_RESERVE,
@@ -60,16 +60,8 @@ export const swapTokensTool: AgentTool = {
       : MAX_SLIPPAGE_NORMAL_BPS;
     const slippageBps = Math.min(Number(params.slippageBps ?? 100), maxSlippage);
 
-    // Resolve symbol → address (BNB special-cased to WBNB for router, native for value)
-    const resolveAddress = (symbolOrAddr: string): string | null => {
-      if (symbolOrAddr.startsWith('0x')) return symbolOrAddr;
-      const upper = symbolOrAddr.toUpperCase();
-      if (upper === 'BNB') return NATIVE_BNB_ADDRESS;
-      return SAFE_TOKENS[upper] ?? null;
-    };
-
-    const inAddr = resolveAddress(tokenInRaw);
-    const outAddr = resolveAddress(tokenOutRaw);
+    const inAddr = resolveToken(tokenInRaw);
+    const outAddr = resolveToken(tokenOutRaw);
 
     if (!inAddr) {
       return { error: `Unknown token: ${tokenInRaw}. Use a contract address or a known symbol (BNB, WBNB, CAKE, USDT, USDC, BUSD, ETH, BTCB).` };

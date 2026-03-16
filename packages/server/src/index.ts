@@ -26,7 +26,7 @@ import {
   getAccountLiquidity,
   executeLPEntry,
 } from '@binancebuddy/blockchain';
-import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS } from '@binancebuddy/core';
+import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS, resolveToken } from '@binancebuddy/core';
 import type { BuddyState, AgentContext, SwapParams, XPSource } from '@binancebuddy/core';
 import {
   startResearchLoop,
@@ -119,20 +119,6 @@ function awardXpForAction(source: XPSource): BuddyState {
   buddyState = updated;
   saveBuddyState(buddyState);
   return buddyState;
-}
-
-// ---------------------------------------------------------------------------
-// Token symbol → address resolver
-// ---------------------------------------------------------------------------
-
-function resolveToken(symbolOrAddress: string): string | null {
-  if (symbolOrAddress.startsWith('0x')) return symbolOrAddress;
-  const upper = symbolOrAddress.toUpperCase();
-  if (upper === 'BNB') return NATIVE_BNB_ADDRESS;
-  if (upper === 'WBNB') return WBNB_ADDRESS;
-  const addr = SAFE_TOKENS[upper];
-  if (addr) return addr;
-  return null;
 }
 
 // ---------------------------------------------------------------------------

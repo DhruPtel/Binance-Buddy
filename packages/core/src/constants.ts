@@ -44,7 +44,24 @@ export const SAFE_TOKENS: Record<string, string> = {
   CAKE: '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82',
   ETH: '0x2170Ed0880ac9A755fd29B2688956BD959F933F8',
   BTCB: '0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c',
+  FDUSD: '0xc5f0f7b66764F6ec8C8Dff7BA683102295E16409',
+  MBOX: '0x3203c9E46cA618C8C1cE5dC67e7e9D75f5da2377',
+  XVS: '0xcF6BB5389c92Bdda8a3747Ddb454cB7a64626C63',
+  ALPACA: '0x8F0528cE5eF7B51152A59745bEfDD91D97091d2F',
 };
+
+/**
+ * Resolve a token symbol or 0x address to a BSC contract address.
+ * Returns null for unknown symbols — never throws.
+ */
+export function resolveToken(symbolOrAddress: string): string | null {
+  if (symbolOrAddress.startsWith('0x') && symbolOrAddress.length === 42) {
+    return symbolOrAddress;
+  }
+  const upper = symbolOrAddress.toUpperCase();
+  if (upper === 'BNB') return NATIVE_BNB_ADDRESS;
+  return SAFE_TOKENS[upper] ?? null;
+}
 
 // Reverse map: address (lowercase) → symbol
 export const TOKEN_SYMBOL_MAP: Record<string, string> = Object.fromEntries(
