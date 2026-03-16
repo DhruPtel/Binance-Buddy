@@ -519,3 +519,40 @@ The agent reads this at session start and never makes the same mistake twice.
 - `.env.example` should contain placeholder values only (empty strings or `your_key_here`).
   Never commit real API keys — even "free tier" keys. Check `git diff .env.example`
   before committing.
+
+### Shared Utility Functions Beat Inline Duplication
+- `resolveToken()` was duplicated in server/index.ts (as a local function) and
+  ai/tools/swap.ts (as an inline `resolveAddress` lambda). When 3 more tools needed
+  the same logic, extraction to `core/constants.ts` was inevitable. Extract shared
+  helpers on the second use, not the third.
+
+### Agent System Prompts Need Explicit Prohibitions
+- Positive instructions ("be concise", "execute immediately") are not enough to stop
+  Claude from volunteering warnings. You need explicit prohibitions: "NEVER say 'before
+  we proceed'", "NEVER refuse based on opinion". Each refusal pattern observed in
+  production should be added as a specific prohibition.
+- The prompt had to be hardened three times before the agent stopped giving unsolicited
+  advice. Pattern: observe bad behavior → add explicit ban → test → repeat.
+
+### Stale Context in Multi-Step Agent Tool Loops
+- AgentContext.walletState is built once at request time. If the agent swaps BNB→USDT
+  then calls supply_lending(USDT), the walletState still shows the old balances.
+  Individual tools must check fresh balances internally (e.g. getBnbBalance()) rather
+  than trusting context. check_positions was rewritten to do a full fresh scan.
+
+### Token Scanning: SAFE_TOKENS Is Not Enough
+- Multicall3-based scanTokens() only checks hardcoded SAFE_TOKENS (11 tokens). Real
+  wallets hold vTokens, LP tokens, protocol governance tokens, stablecoins not in the
+  list, etc. GoldRush getTokenBalances() discovers ALL BEP-20 holdings. The fix is to
+  merge both: scanTokens for known tokens with prices, GoldRush for discovery.
+
+### V3 LP Requires Token Sorting
+- Uniswap V3 / PancakeSwap V3 requires token0 < token1 (by address). If you pass them
+  in the wrong order, mint() reverts silently or produces a position on the wrong pair.
+  Always sort with `tokenA.toLowerCase() < tokenB.toLowerCase()` before calling
+  NonfungiblePositionManager.mint().
+
+### Agent Tool Round Budget
+- A resolve→swap→check→supply flow needs 4+ tool rounds minimum. The default of 5
+  was too tight when resolve_contract was added. Raised to 8. Budget tool rounds based
+  on the longest expected multi-step flow, not the average case.

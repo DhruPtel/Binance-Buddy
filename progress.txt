@@ -1,35 +1,65 @@
 # Binance Buddy — Progress
 
 ## Current State
-Phase 4 complete + 3D buddy renderer + UX fixes. tsc --noEmit clean. 19/19 tests pass.
-3D bear GLB models loading in dashboard buddy panel (Three.js r128). Stage-based model
-evolution: seedling/sprout → cub, bloom → teen, guardian/apex → adult. Idle look-around
-animation (gentle Y-axis sine), event animations (bounce on XP, spin on trade).
-Research actions award XP. Evolution thresholds lowered for testing. resolveToken crash fixed.
+Phase 5 agent-first execution complete. tsc --noEmit clean. 19/19 tests pass.
+Agent now has 12 tools (was 7). Action buttons route through agent chat instead of
+browser prompt(). System prompt enforces execute-first behavior. resolveToken shared
+in core. PancakeSwap V3 LP support added. check_positions scans all BEP-20 tokens
+via GoldRush (not just SAFE_TOKENS). Max tool rounds raised from 5 to 8.
 
-## Known Issues / Next Steps (prioritized for demo)
-### MUST FIX (demo-breaking)
-1. Action buttons (Supply, Deposit, Add Liquidity) use browser prompt() for amount —
-   bad UX. Should prefill agent chat with natural language instruction and auto-send.
-   Small refactor: build instruction string → set chat input value → call chatSend().
-2. Agent only has swap_tokens tool — needs deposit_vault, supply_lending, add_liquidity
-   tools in the tool registry so the agent can orchestrate multi-step flows. The endpoint
-   code already exists; just needs tool wrappers in packages/ai/src/tools/index.ts.
-3. Add FDUSD (+ MBOX, BTCB if missing) to SAFE_TOKENS — 5 min, prevents 400 errors
-   when these tokens appear in Venus/Beefy pool rows.
+## Known Issues / Next Steps
+### MUST FIX
+1. check_positions GoldRush scan only works if COVALENT_API_KEY is set — without it,
+   falls back to SAFE_TOKENS only. Need to test with key.
+2. LP V3 NonfungiblePositionManager.mint() flow is untested on mainnet — only the
+   V3 pool detection (factory.getPool + slot0) can be verified without funds.
+3. Agent still sometimes too chatty — gives warnings/advice during execution despite
+   system prompt prohibitions. May need to lower temperature or add stop sequences.
+4. End-to-end demo walkthrough on funded wallet — always reveals 2-3 crashes.
 
 ### SHOULD FIX (polish)
-4. End-to-end demo walkthrough on funded wallet — always reveals 2-3 crashes.
 5. Graceful errors for unfunded wallet / missing ANTHROPIC_API_KEY — should return
    helpful messages, not 500s.
 6. Reset .buddy-state.json before demo to start at seedling/0 XP.
+7. Research report stored in-memory (Redis planned but not wired) — lost on restart.
 
 ### LEAVE AS-IS for demo
 - Alerts not monitoring (concept shown, no one will test)
 - Sniper execution not wired (listener activates, enough for demo)
 - Extension not tested E2E (mention, don't demo)
 - Telegram personality (mention OpenClaw integration)
-- LP failing on unknown tokens (don't click those pools)
+
+## Phase 5 Agent-First Execution (Mar 16)
+- resolveToken() extracted to @binancebuddy/core as shared utility — was duplicated
+  in server/index.ts and ai/tools/swap.ts. Handles 0x pass-through, BNB native,
+  SAFE_TOKENS lookup. Returns null, never throws.
+- FDUSD, MBOX, XVS, ALPACA added to SAFE_TOKENS (was 7, now 11)
+- 5 new agent tools registered (12 total, was 7):
+  - deposit_vault: Beefy vault deposits via findVaultForToken + executeVaultDeposit
+  - supply_lending: Venus lending supply via Comptroller + executeLendingSupply
+  - add_liquidity: PancakeSwap V2/V3 LP via executeLPEntry
+  - get_research: live DeFi data — top 3 protocols per category with best pools,
+    or single protocol deep dive. Connects research pipeline to execution agent.
+  - resolve_contract: contract address discovery — DeFiLlama pool cache search →
+    Brave Search fallback → on-chain verification via symbol() + decimals()
+- Dashboard action buttons rewritten: removed vaultDeposit(), lendingSupply(),
+  addLiquidity() (all used browser prompt()). Replaced with executeFromResearch()
+  that builds natural language message and sends to agent chat via chatSend().
+  Pool rows carry data-underlying and data-protocol attributes.
+- System prompt overhauled for execute-first behavior:
+  - "EXECUTE IMMEDIATELY" — no warnings, no advice during execution
+  - "NEVER refuse based on opinion" — only guardrail failures block trades
+  - Auto-swap: agent swaps BNB for required tokens before deposit/supply/LP
+  - Contract resolution: call resolve_contract before executing on unknown tokens
+  - Research: always call get_research before answering investment questions
+- MAX_TOOL_ROUNDS raised from 5 to 8 for resolve→swap→check→supply flows
+- PancakeSwap V3 LP support: auto-detects V3 pools via factory.getPool() across
+  4 fee tiers (2500, 500, 10000, 100 bps). V3 path uses NonfungiblePositionManager.mint()
+  with full-range ticks. V2 fallback unchanged. New ABIs: PANCAKESWAP_V3_FACTORY_ABI,
+  PANCAKESWAP_V3_POOL_ABI, NONFUNGIBLE_POSITION_MANAGER_ABI.
+- check_positions rewritten: fresh scanWallet() + GoldRush getTokenBalances() on every
+  call. Discovers ALL BEP-20 tokens (vTokens, LP tokens, protocol tokens), not just
+  SAFE_TOKENS. Merged and deduplicated.
 
 ## 3D Buddy Renderer (Mar 16)
 - Three.js r128 GLB loading in dashboard buddy panel (250px canvas, dark bg)
