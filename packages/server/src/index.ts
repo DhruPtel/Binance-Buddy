@@ -2194,7 +2194,7 @@ function initBuddy3D() {
   _b3dScene.background = new THREE.Color(0x0d1117);
 
   _b3dCamera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
-  _b3dCamera.position.set(0, 1.4, 2.2);
+  _b3dCamera.position.set(0, 1.4, 2.8);
   _b3dCamera.lookAt(0, 0.6, 0);
 
   _b3dRenderer = new THREE.WebGLRenderer({ antialias: true });
@@ -2243,13 +2243,8 @@ function _b3dLoadModel(stage) {
 function _b3dLoop() {
   requestAnimationFrame(_b3dLoop);
   if (!_b3dRenderer || !_b3dScene || !_b3dCamera) return;
-  var t = _b3dClock ? _b3dClock.getElapsedTime() : 0;
   if (_b3dModel) {
     var baseY = _b3dModel.userData.baseY || 0;
-    // Idle: breathing scale pulse + gentle Z tilt — no Y bobbing
-    var breath = 1.0 + Math.sin(t * 1.2) * 0.012;
-    _b3dModel.scale.setScalar((_b3dModel.userData.baseScale || 1) * breath);
-    _b3dModel.rotation.z = Math.sin(t * 0.8) * 0.018;
     // Event: spin on trade
     if (_b3dAnimState.spin > 0) {
       _b3dModel.rotation.y += 0.18;
