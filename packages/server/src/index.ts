@@ -2231,7 +2231,7 @@ function _b3dLoadModel(stage) {
     var maxDim = Math.max(size.x, size.y, size.z) || 1;
     var scale = 1.6 / maxDim;
     _b3dModel.scale.setScalar(scale);
-    _b3dModel.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+    _b3dModel.position.set(-center.x * scale, -center.y * scale + 0.3, -center.z * scale);
     _b3dModel.userData.baseY = _b3dModel.position.y;
     _b3dScene.add(_b3dModel);
   }, undefined, function(err) {
@@ -2250,8 +2250,6 @@ function _b3dLoop() {
     if (_b3dAnimState.spin > 0) {
       _b3dModel.rotation.y += 0.18;
       _b3dAnimState.spin = Math.max(0, _b3dAnimState.spin - 0.02);
-    } else {
-      _b3dModel.rotation.y += 0.003;
     }
     if (_b3dAnimState.bounce > 0) {
       _b3dModel.position.y += Math.sin(_b3dAnimState.bounce * Math.PI) * 0.3;
