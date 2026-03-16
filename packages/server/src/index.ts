@@ -1170,7 +1170,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 
@@ -2169,7 +2168,6 @@ function runDiscovery() {
 var _b3dRenderer = null;
 var _b3dScene = null;
 var _b3dCamera = null;
-var _b3dControls = null;
 var _b3dModel = null;
 var _b3dClock = null;
 var _b3dAnimState = { bounce: 0, spin: 0 };
@@ -2196,7 +2194,8 @@ function initBuddy3D() {
   _b3dScene.background = new THREE.Color(0x0d1117);
 
   _b3dCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-  _b3dCamera.position.set(0, 1.2, 3.5);
+  _b3dCamera.position.set(0, 1.0, 2.5);
+  _b3dCamera.lookAt(0, 0.8, 0);
 
   _b3dRenderer = new THREE.WebGLRenderer({ antialias: true });
   _b3dRenderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -2214,14 +2213,6 @@ function initBuddy3D() {
   fillLight.position.set(-2, 1, -2);
   _b3dScene.add(fillLight);
 
-  if (THREE.OrbitControls) {
-    _b3dControls = new THREE.OrbitControls(_b3dCamera, _b3dRenderer.domElement);
-    _b3dControls.enableDamping = true;
-    _b3dControls.dampingFactor = 0.08;
-    _b3dControls.enableZoom = false;
-    _b3dControls.target.set(0, 0.8, 0);
-    _b3dControls.update();
-  }
 
   _b3dClock = new THREE.Clock();
   _b3dLoop();
@@ -2267,7 +2258,6 @@ function _b3dLoop() {
       _b3dAnimState.bounce = Math.max(0, _b3dAnimState.bounce - 0.04);
     }
   }
-  if (_b3dControls) _b3dControls.update();
   _b3dRenderer.render(_b3dScene, _b3dCamera);
 }
 
