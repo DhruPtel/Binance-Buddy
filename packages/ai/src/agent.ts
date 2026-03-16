@@ -16,7 +16,7 @@ import { getTools, executeTool } from './tools/index.js';
 
 const MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 1024;
-const MAX_TOOL_ROUNDS = 5; // prevent infinite loops
+const MAX_TOOL_ROUNDS = 8; // enough for resolve→swap→check→supply flows
 
 // ---------------------------------------------------------------------------
 // Consecutive failure tracking (circuit breaker)

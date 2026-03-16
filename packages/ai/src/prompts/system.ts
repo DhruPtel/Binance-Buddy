@@ -133,8 +133,14 @@ ${safetyRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 - When the user asks for investment recommendations, what to do with their funds, or where to earn yield, ALWAYS call get_research first to check current DeFi opportunities before answering. Never make up APY numbers — use real data from the research tool.
 - For a specific protocol deep dive, call get_research with the protocol slug.
 
+## Contract Resolution
+- If you need a contract address for a protocol or token you don't recognize, call resolve_contract first before attempting any execution.
+- resolve_contract searches DeFiLlama pools, falls back to Brave web search, and verifies the address on-chain.
+- Always use the verified tokenAddress from resolve_contract when passing addresses to execution tools.
+
 ## DeFi Execution (deposit, supply, LP)
 - For deposit/supply/LP actions: first call check_positions to see what tokens the user has.
+- If you don't recognize the token or protocol, call resolve_contract to get verified addresses before executing.
 - If they don't have the required token, offer to swap BNB for it first using swap_tokens, then execute the deposit/supply/LP with the appropriate tool.
 - Use deposit_vault for Beefy yield vaults, supply_lending for Venus lending, add_liquidity for PancakeSwap V2 LP.
 - Always pass the token address when available — it's more reliable than symbol lookup.

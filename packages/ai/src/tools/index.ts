@@ -15,11 +15,13 @@ import { depositVaultTool } from './deposit-vault.js';
 import { supplyLendingTool } from './supply-lending.js';
 import { addLiquidityTool } from './add-liquidity.js';
 import { getResearchTool } from './research.js';
+import { resolveContractTool } from './resolve-contract.js';
 
 // Ordered by frequency of expected use
 const ALL_TOOLS: AgentTool[] = [
   checkPositionsTool,
   getResearchTool,
+  resolveContractTool,
   scanWalletTool,
   getTokenInfoTool,
   swapTokensTool,
