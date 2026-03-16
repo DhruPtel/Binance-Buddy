@@ -1862,7 +1862,7 @@ function poolSwapToken(symbol) {
   return symbol.trim();
 }
 
-function renderPoolRow(pool, protocolName) {
+function renderPoolRow(pool, protocolName, protocolSlug) {
   var ilCls = pool.ilRisk === 'none' || pool.ilRisk === 'low' ? 'low' : pool.ilRisk === 'medium' ? 'medium' : 'high';
   var ilLabel = pool.ilRisk === 'none' ? 'No IL' : 'IL: ' + pool.ilRisk;
   var displaySymbol = pool.symbol;
@@ -1873,17 +1873,28 @@ function renderPoolRow(pool, protocolName) {
   var apyStr = apyCapped ? '500%+ ⚠️' : pool.apy.toFixed(1) + '%';
   var apyCls = apyCapped ? 'pool-apy apy-capped' : 'pool-apy';
   var swapToken = poolSwapToken(pool.symbol);
-  var actionBtn;
+  var underlying = (pool.underlyingTokens && pool.underlyingTokens[0]) || '';
+  var slug = protocolSlug || '';
+  var category = pool.poolType || '';
+  var actionLabel;
   if (pool.poolType === 'lending') {
-    actionBtn = '<button class="pool-swap-btn" onclick="lendingSupply(\\'' + escapeHtml(swapToken) + '\\')">Supply →</button>';
+    actionLabel = 'Supply';
   } else if (pool.poolType === 'lp') {
-    actionBtn = '<button class="pool-swap-btn" onclick="addLiquidity(\\'' + escapeHtml(swapToken) + '\\')">Add Liquidity →</button>';
+    actionLabel = 'Add Liquidity';
   } else if (pool.poolType === 'yield' || pool.poolType === 'staking') {
-    actionBtn = '<button class="pool-swap-btn" onclick="vaultDeposit(\\'' + escapeHtml(swapToken) + '\\')">Deposit →</button>';
+    actionLabel = 'Deposit';
   } else {
-    actionBtn = '<button class="pool-swap-btn" onclick="prefillTrade(\\'' + escapeHtml(swapToken) + '\\')">Swap →</button>';
+    actionLabel = 'Swap';
   }
-  return '<div class="pool-row ' + (pool.isHighlighted ? 'highlighted' : 'other') + '">' +
+  var actionBtn = '<button class="pool-swap-btn" onclick="executeFromResearch(\\'' +
+    escapeHtml(actionLabel) + '\\',\\'' +
+    escapeHtml(swapToken) + '\\',\\'' +
+    escapeHtml(slug) + '\\',\\'' +
+    escapeHtml(category) + '\\',\\'' +
+    escapeHtml(underlying) + '\\')">' + actionLabel + ' →</button>';
+  return '<div class="pool-row ' + (pool.isHighlighted ? 'highlighted' : 'other') + '"' +
+    ' data-underlying="' + escapeHtml(underlying) + '"' +
+    ' data-protocol="' + escapeHtml(slug) + '">' +
     '<span class="pool-symbol">' + escapeHtml(displaySymbol) + '</span>' +
     '<span class="' + apyCls + '">' + apyStr + '</span>' +
     '<span class="pool-tvl">' + formatTvl(pool.tvlUsd) + '</span>' +
@@ -1925,14 +1936,15 @@ function renderDeepDive(report) {
   var other = (report.pools || []).filter(function(p) { return !p.isHighlighted; });
 
   var pName = report.protocolName || '';
+  var pSlug = report.protocolSlug || '';
   document.getElementById('deepdive-best').innerHTML = highlighted.length
-    ? highlighted.map(function(p) { return renderPoolRow(p, pName); }).join('')
+    ? highlighted.map(function(p) { return renderPoolRow(p, pName, pSlug); }).join('')
     : '<div class="text-sec text-sm">No tracked yield pools on BSC — showing protocol-level data only.</div>';
 
   var otherHeader = document.getElementById('other-pools-header');
   if (other.length > 0) {
     otherHeader.style.display = 'block';
-    document.getElementById('deepdive-other').innerHTML = other.map(function(p) { return renderPoolRow(p, pName); }).join('');
+    document.getElementById('deepdive-other').innerHTML = other.map(function(p) { return renderPoolRow(p, pName, pSlug); }).join('');
   } else {
     otherHeader.style.display = 'none';
     document.getElementById('deepdive-other').innerHTML = '';
@@ -2479,170 +2491,19 @@ function prefillTrade(token) {
 }
 
 // =============================================================================
-// Vault Deposits
+// Agent-first execution — action buttons send goals to agent chat
 // =============================================================================
-function vaultDeposit(token) {
-  var amount = prompt('Deposit amount for ' + token + ':');
-  if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
-  var resEl = document.getElementById('tx-result');
-  resEl.innerHTML = '<span class="spinner"></span> Depositing ' + escapeHtml(amount) + ' ' + escapeHtml(token) + ' into Beefy vault...';
-  resEl.style.display = 'block';
-  document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  log('VAULT', 'Depositing ' + amount + ' ' + token);
+function executeFromResearch(action, token, protocol, category, underlyingAddr) {
+  var message = action + ' ' + token + ' on ' + protocol + ' (' + category + ').';
+  if (underlyingAddr) message += ' Token address: ' + underlyingAddr + '.';
 
-  fetch('/api/vault/execute', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: token, amount: amount })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.error && !d.success) {
-      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Deposit Failed</div>' +
-        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error) + '</div>';
-      log('ERROR', 'Vault deposit failed: ' + d.error);
-      return;
-    }
-    if (d.success) {
-      var txLink = 'https://bscscan.com/tx/' + d.txHash;
-      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">Vault Deposit Executed</div>' +
-        '<div class="text-sm">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + '</a></div>' +
-        '<div class="text-sm text-sec">Deposited: ' + escapeHtml(d.amountDeposited) + ' ' + escapeHtml(token) + '</div>' +
-        '<div class="text-sm text-sec">Vault: ' + escapeHtml(d.vault.name) + ' (' + escapeHtml(d.vault.platform) + ')</div>' +
-        '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
-      log('VAULT', 'Deposit success! Tx: ' + d.txHash.slice(0,10) + '...');
-      buddyTriggerSpin();
-      if (d.buddyState) updateBuddyPanel(d.buddyState);
-      loadHeader();
-    } else {
-      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Deposit Failed</div>' +
-        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
-      log('ERROR', 'Vault deposit failed: ' + (d.error || 'unknown'));
-    }
-  })
-  .catch(function(e) {
-    resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
-    log('ERROR', 'Vault deposit error: ' + e.message);
-  });
-}
+  // Send to agent chat
+  document.getElementById('chat-input').value = message;
+  chatSend();
 
-// =============================================================================
-// Lending Supply
-// =============================================================================
-function lendingSupply(token) {
-  var amount = prompt('Supply amount for ' + token + ':');
-  if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
-  var resEl = document.getElementById('tx-result');
-  resEl.innerHTML = '<span class="spinner"></span> Supplying ' + escapeHtml(amount) + ' ' + escapeHtml(token) + ' to Venus...';
-  resEl.style.display = 'block';
-  document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  log('LENDING', 'Supplying ' + amount + ' ' + token);
-
-  fetch('/api/lending/supply/execute', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: token, amount: amount })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.error && !d.success) {
-      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Supply Failed</div>' +
-        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error) + '</div>';
-      log('ERROR', 'Lending supply failed: ' + d.error);
-      return;
-    }
-    if (d.success) {
-      var txLink = 'https://bscscan.com/tx/' + d.txHash;
-      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">Supply Executed</div>' +
-        '<div class="text-sm">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + '</a></div>' +
-        '<div class="text-sm text-sec">Supplied: ' + escapeHtml(d.amountSupplied) + ' ' + escapeHtml(token) + '</div>' +
-        '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
-      log('LENDING', 'Supply success! Tx: ' + d.txHash.slice(0,10) + '...');
-      buddyTriggerSpin();
-      if (d.buddyState) updateBuddyPanel(d.buddyState);
-      loadHeader();
-    } else {
-      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Supply Failed</div>' +
-        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
-      log('ERROR', 'Lending supply failed: ' + (d.error || 'unknown'));
-    }
-  })
-  .catch(function(e) {
-    resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
-    log('ERROR', 'Lending supply error: ' + e.message);
-  });
-}
-
-// =============================================================================
-// Add Liquidity
-// =============================================================================
-function addLiquidity(token) {
-  var amountBnb = prompt('Total BNB to add as liquidity for BNB/' + token + ' (half will be swapped for ' + token + '):');
-  if (!amountBnb || isNaN(parseFloat(amountBnb)) || parseFloat(amountBnb) <= 0) return;
-  var resEl = document.getElementById('tx-result');
-  resEl.innerHTML = '<span class="spinner"></span> Adding liquidity: ' + escapeHtml(amountBnb) + ' BNB → BNB/' + escapeHtml(token) + ' LP...<br>' +
-    '<div class="text-sm text-sec" style="margin-top:6px">' +
-    '<div id="lp-step-0">Step 1/3: Swapping half BNB for ' + escapeHtml(token) + '...</div>' +
-    '<div id="lp-step-1" class="text-sec">Step 2/3: Approving token...</div>' +
-    '<div id="lp-step-2" class="text-sec">Step 3/3: Adding liquidity...</div>' +
-    '</div>';
-  resEl.style.display = 'block';
-  document.getElementById('trade-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  log('LP', 'Adding liquidity: ' + amountBnb + ' BNB for BNB/' + token);
-
-  fetch('/api/lp/execute', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: token, amountBnb: amountBnb })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.error && !d.success) {
-      // Show step statuses if available
-      var stepHtml = '';
-      if (d.steps) {
-        for (var i = 0; i < d.steps.length; i++) {
-          var s = d.steps[i];
-          var icon = s.status === 'confirmed' ? '<span style="color:var(--green)">Done</span>' :
-                     s.status === 'failed' ? '<span style="color:var(--red)">Failed</span>' :
-                     '<span class="text-sec">Pending</span>';
-          stepHtml += '<div class="text-sm">' + icon + ' ' + escapeHtml(s.label) + '</div>';
-        }
-      }
-      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">LP Entry Failed</div>' +
-        stepHtml +
-        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error) + '</div>';
-      log('ERROR', 'LP failed: ' + d.error);
-      return;
-    }
-    if (d.success) {
-      var txLink = 'https://bscscan.com/tx/' + d.txHash;
-      var stepHtml2 = '';
-      if (d.steps) {
-        for (var j = 0; j < d.steps.length; j++) {
-          var st = d.steps[j];
-          stepHtml2 += '<div class="text-sm" style="color:var(--green)">Done: ' + escapeHtml(st.label) + '</div>';
-        }
-      }
-      resEl.innerHTML = '<div style="color:var(--green);font-weight:600;margin-bottom:6px">Liquidity Added</div>' +
-        stepHtml2 +
-        '<div class="text-sm" style="margin-top:4px">Tx: <a href="' + txLink + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,10) + '...' + d.txHash.slice(-6) + '</a></div>' +
-        '<div class="text-sm text-sec">LP tokens received: ' + (d.lpTokensReceived || '0') + '</div>' +
-        '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
-      log('LP', 'Liquidity added! Tx: ' + d.txHash.slice(0,10) + '...');
-      buddyTriggerSpin();
-      if (d.buddyState) updateBuddyPanel(d.buddyState);
-      loadHeader();
-    } else {
-      resEl.innerHTML = '<div style="color:var(--red);font-weight:600">LP Entry Failed</div>' +
-        '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
-      log('ERROR', 'LP failed: ' + (d.error || 'unknown'));
-    }
-  })
-  .catch(function(e) {
-    resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
-    log('ERROR', 'LP error: ' + e.message);
-  });
+  // Scroll to chat panel
+  document.getElementById('chat-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  log('ACTION', action + ' ' + token + ' via agent chat');
 }
 
 // =============================================================================
