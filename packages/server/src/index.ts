@@ -2231,7 +2231,7 @@ function _b3dLoadModel(stage) {
     var maxDim = Math.max(size.x, size.y, size.z) || 1;
     var scale = 1.6 / maxDim;
     _b3dModel.scale.setScalar(scale);
-    _b3dModel.position.set(-center.x * scale, -center.y * scale + 0.3, -center.z * scale);
+    _b3dModel.position.set(-center.x * scale, -center.y * scale + 0.6, -center.z * scale);
     _b3dModel.userData.baseY = _b3dModel.position.y;
     _b3dScene.add(_b3dModel);
   }, undefined, function(err) {
