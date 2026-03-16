@@ -1,11 +1,47 @@
 # Binance Buddy — Progress
 
 ## Current State
-Phase 4 Execution Bridge complete. 8 packages fully built and typechecking clean.
-19/19 tests pass. Extension built to dist/.
-Research → Execution pipeline fully wired: every pool row has a context-appropriate
-action button (Swap/Deposit/Supply/Add Liquidity) that executes immediately via
-agent wallet when guardrails pass.
+Phase 4 complete + 3D buddy renderer + UX fixes. tsc --noEmit clean. 19/19 tests pass.
+3D bear GLB models loading in dashboard buddy panel (Three.js r128). Stage-based model
+evolution: seedling/sprout → cub, bloom → teen, guardian/apex → adult. Idle look-around
+animation (gentle Y-axis sine), event animations (bounce on XP, spin on trade).
+Research actions award XP. Evolution thresholds lowered for testing. resolveToken crash fixed.
+
+## Known Issues / Next Steps
+1. Action buttons (Supply, Deposit, Add Liquidity) use browser prompt() for amount —
+   bad UX. Should route through agent chat instead: user types intent, agent orchestrates.
+2. LP entry fails on unknown tokens (e.g. MBOX) not in SAFE_TOKENS — needs swap-first flow
+   where agent swaps BNB → token first, then calls addLiquidityETH. Not just a lookup fix.
+3. Lending supply fails on FDUSD — token not in SAFE_TOKENS, resolveToken returns null → 400.
+   Need to add FDUSD to SAFE_TOKENS or support contract address input from the UI.
+4. Action buttons should send natural-language instructions to agent chat, not call endpoints
+   directly. Multi-step flows (swap → deposit, swap → LP entry) need the agent to orchestrate
+   via tool loop. Buttons should pre-fill the chat input and submit, not bypass the agent.
+
+## 3D Buddy Renderer (Mar 16)
+- Three.js r128 GLB loading in dashboard buddy panel (250px canvas, dark bg)
+- Models served via express.static at /public/models/ (__dirname + /../public)
+- Stage → model mapping: seedling/sprout → bear-stage1-cub.glb, bloom → bear-stage2-teen.glb,
+  guardian/apex → bear-stage3-adult.glb
+- Camera: position (0,1.4,2.8) FOV 40°, lookAt(0,0.6,0) — front-facing Pokemon-viewer angle
+- Idle: slow look-around rotation (Math.sin(t*0.5)*0.15 on Y axis, centered at 0)
+- Events: bounce (XP gain), spin (trade/vault/LP/lending execution)
+- Model reload triggered on stage change via updateBuddyPanel()
+- JS validated with curl + node --check after every change
+- OrbitControls removed — model is non-interactive
+
+## XP + Evolution Changes (Mar 16)
+- New XP source: research_action (10 XP) — awarded on GET /api/research/protocol/:slug
+- trade_executed XP raised: 10 → 30
+- Evolution thresholds lowered for testing: sprout 30, bloom 80, guardian 150, apex 300
+  (was: 100 / 500 / 2000 / 5000)
+- Dashboard STAGE_INFO next-values synced to match
+
+## resolveToken Crash Fix (Mar 16)
+- resolveToken() now returns string | null instead of throwing on unknown symbols
+- Null guards added at all 4 call sites: swap/quote, swap/execute, lending/supply, lp/execute
+- Lending endpoint was most dangerous: resolveToken called outside try block → server crash
+- All unknown-token paths now return HTTP 400 with a descriptive message
 
 ## Phase 4 Execution Bridge (Mar 14)
 - 4A: swap_tokens tool auto-executes via agent wallet (no confirmation prompt);
