@@ -2193,9 +2193,9 @@ function initBuddy3D() {
   _b3dScene = new THREE.Scene();
   _b3dScene.background = new THREE.Color(0x0d1117);
 
-  _b3dCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-  _b3dCamera.position.set(0, 1.0, 2.5);
-  _b3dCamera.lookAt(0, 0.8, 0);
+  _b3dCamera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
+  _b3dCamera.position.set(0, 2.0, 3.2);
+  _b3dCamera.lookAt(0, 0.5, 0);
 
   _b3dRenderer = new THREE.WebGLRenderer({ antialias: true });
   _b3dRenderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -2231,6 +2231,7 @@ function _b3dLoadModel(stage) {
     var maxDim = Math.max(size.x, size.y, size.z) || 1;
     var scale = 1.6 / maxDim;
     _b3dModel.scale.setScalar(scale);
+    _b3dModel.userData.baseScale = scale;
     _b3dModel.position.set(-center.x * scale, -center.y * scale + 0.6, -center.z * scale);
     _b3dModel.userData.baseY = _b3dModel.position.y;
     _b3dScene.add(_b3dModel);
@@ -2245,15 +2246,21 @@ function _b3dLoop() {
   var t = _b3dClock ? _b3dClock.getElapsedTime() : 0;
   if (_b3dModel) {
     var baseY = _b3dModel.userData.baseY || 0;
-    var bob = Math.sin(t * 1.5) * 0.05;
-    _b3dModel.position.y = baseY + bob;
+    // Idle: breathing scale pulse + gentle Z tilt — no Y bobbing
+    var breath = 1.0 + Math.sin(t * 1.2) * 0.012;
+    _b3dModel.scale.setScalar((_b3dModel.userData.baseScale || 1) * breath);
+    _b3dModel.rotation.z = Math.sin(t * 0.8) * 0.018;
+    // Event: spin on trade
     if (_b3dAnimState.spin > 0) {
       _b3dModel.rotation.y += 0.18;
       _b3dAnimState.spin = Math.max(0, _b3dAnimState.spin - 0.02);
     }
+    // Event: bounce on XP gain
     if (_b3dAnimState.bounce > 0) {
-      _b3dModel.position.y += Math.sin(_b3dAnimState.bounce * Math.PI) * 0.3;
+      _b3dModel.position.y = baseY + Math.sin(_b3dAnimState.bounce * Math.PI) * 0.3;
       _b3dAnimState.bounce = Math.max(0, _b3dAnimState.bounce - 0.04);
+    } else {
+      _b3dModel.position.y = baseY;
     }
   }
   _b3dRenderer.render(_b3dScene, _b3dCamera);
