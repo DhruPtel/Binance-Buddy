@@ -11,13 +11,21 @@ import { checkPositionsTool } from './positions.js';
 import { setAlertTool } from './alerts.js';
 import { findFarmsTool } from './farms.js';
 import { snipeLaunchTool } from './snipe.js';
+import { depositVaultTool } from './deposit-vault.js';
+import { supplyLendingTool } from './supply-lending.js';
+import { addLiquidityTool } from './add-liquidity.js';
+import { getResearchTool } from './research.js';
 
 // Ordered by frequency of expected use
 const ALL_TOOLS: AgentTool[] = [
   checkPositionsTool,
+  getResearchTool,
   scanWalletTool,
   getTokenInfoTool,
   swapTokensTool,
+  depositVaultTool,
+  supplyLendingTool,
+  addLiquidityTool,
   findFarmsTool,
   setAlertTool,
   snipeLaunchTool,
