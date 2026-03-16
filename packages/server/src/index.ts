@@ -57,6 +57,7 @@ import { awardXp, xpToStage } from '@binancebuddy/buddy';
 const app: Express = express();
 app.use(cors());
 app.use(express.json());
+app.use('/public', express.static(__dirname + '/../public'));
 
 const PORT = process.env.PORT ?? 3000;
 const MORALIS_API_KEY = process.env.MORALIS_API_KEY ?? '';
@@ -1167,6 +1168,9 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .dr-query-time { font-size:10px; color:var(--text-sec); margin-bottom:6px; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 
@@ -1222,7 +1226,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     <!-- Buddy -->
     <div class="card" id="buddy-card">
       <h2>Your Buddy</h2>
-      <div id="buddy-avatar" class="buddy-avatar" style="background: linear-gradient(135deg, #0ECB81, #0a9960)">🌱</div>
+      <div id="buddy-canvas-wrap" style="width:100%;height:250px;background:#0d1117;border-radius:var(--radius-md);overflow:hidden;margin-bottom:10px;position:relative"></div>
       <div style="text-align:center;margin-bottom:8px">
         <span id="buddy-stage-label" style="font-weight:600;font-family:'Space Grotesk',sans-serif">Seedling</span>
         <span class="text-sec text-sm"> · Lv.<span id="buddy-level">1</span></span>
@@ -1427,6 +1431,7 @@ var _wallet = '';
 var _mode = 'normal';
 var _chatHistory = [];
 var _buddyXp = 0;
+var _buddyStage3D = '';
 var _sniperActive = false;
 var _agentWalletAddr = null;
 
@@ -2159,6 +2164,117 @@ function runDiscovery() {
 }
 
 // =============================================================================
+// Buddy 3D Renderer
+// =============================================================================
+var _b3dRenderer = null;
+var _b3dScene = null;
+var _b3dCamera = null;
+var _b3dControls = null;
+var _b3dModel = null;
+var _b3dClock = null;
+var _b3dAnimState = { bounce: 0, spin: 0 };
+
+function _b3dModelUrl(stage) {
+  var map = {
+    seedling: 'bear-stage1-cub.glb',
+    sprout:   'bear-stage1-cub.glb',
+    bloom:    'bear-stage2-teen.glb',
+    guardian: 'bear-stage3-adult.glb',
+    apex:     'bear-stage3-adult.glb'
+  };
+  return '/public/models/' + (map[stage] || 'bear-stage1-cub.glb');
+}
+
+function initBuddy3D() {
+  if (!window.THREE) return;
+  var wrap = document.getElementById('buddy-canvas-wrap');
+  if (!wrap) return;
+  var w = wrap.clientWidth || 280;
+  var h = 250;
+
+  _b3dScene = new THREE.Scene();
+  _b3dScene.background = new THREE.Color(0x0d1117);
+
+  _b3dCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+  _b3dCamera.position.set(0, 1.2, 3.5);
+
+  _b3dRenderer = new THREE.WebGLRenderer({ antialias: true });
+  _b3dRenderer.setPixelRatio(window.devicePixelRatio || 1);
+  _b3dRenderer.setSize(w, h);
+  _b3dRenderer.shadowMap.enabled = true;
+  wrap.appendChild(_b3dRenderer.domElement);
+
+  var ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  _b3dScene.add(ambient);
+  var dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+  dirLight.position.set(2, 4, 3);
+  dirLight.castShadow = true;
+  _b3dScene.add(dirLight);
+  var fillLight = new THREE.DirectionalLight(0x4488ff, 0.3);
+  fillLight.position.set(-2, 1, -2);
+  _b3dScene.add(fillLight);
+
+  if (THREE.OrbitControls) {
+    _b3dControls = new THREE.OrbitControls(_b3dCamera, _b3dRenderer.domElement);
+    _b3dControls.enableDamping = true;
+    _b3dControls.dampingFactor = 0.08;
+    _b3dControls.enableZoom = false;
+    _b3dControls.target.set(0, 0.8, 0);
+    _b3dControls.update();
+  }
+
+  _b3dClock = new THREE.Clock();
+  _b3dLoop();
+}
+
+function _b3dLoadModel(stage) {
+  if (!window.THREE || !_b3dScene) return;
+  if (_b3dModel) { _b3dScene.remove(_b3dModel); _b3dModel = null; }
+  _buddyStage3D = stage;
+  var loader = new THREE.GLTFLoader();
+  loader.load(_b3dModelUrl(stage), function(gltf) {
+    _b3dModel = gltf.scene;
+    var box = new THREE.Box3().setFromObject(_b3dModel);
+    var center = box.getCenter(new THREE.Vector3());
+    var size = box.getSize(new THREE.Vector3());
+    var maxDim = Math.max(size.x, size.y, size.z) || 1;
+    var scale = 1.6 / maxDim;
+    _b3dModel.scale.setScalar(scale);
+    _b3dModel.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+    _b3dModel.userData.baseY = _b3dModel.position.y;
+    _b3dScene.add(_b3dModel);
+  }, undefined, function(err) {
+    console.warn('[buddy3d] model load failed:', _b3dModelUrl(stage), err);
+  });
+}
+
+function _b3dLoop() {
+  requestAnimationFrame(_b3dLoop);
+  if (!_b3dRenderer || !_b3dScene || !_b3dCamera) return;
+  var t = _b3dClock ? _b3dClock.getElapsedTime() : 0;
+  if (_b3dModel) {
+    var baseY = _b3dModel.userData.baseY || 0;
+    var bob = Math.sin(t * 1.5) * 0.05;
+    _b3dModel.position.y = baseY + bob;
+    if (_b3dAnimState.spin > 0) {
+      _b3dModel.rotation.y += 0.18;
+      _b3dAnimState.spin = Math.max(0, _b3dAnimState.spin - 0.02);
+    } else {
+      _b3dModel.rotation.y += 0.003;
+    }
+    if (_b3dAnimState.bounce > 0) {
+      _b3dModel.position.y += Math.sin(_b3dAnimState.bounce * Math.PI) * 0.3;
+      _b3dAnimState.bounce = Math.max(0, _b3dAnimState.bounce - 0.04);
+    }
+  }
+  if (_b3dControls) _b3dControls.update();
+  _b3dRenderer.render(_b3dScene, _b3dCamera);
+}
+
+function buddyTriggerBounce() { _b3dAnimState.bounce = 1.0; }
+function buddyTriggerSpin()   { _b3dAnimState.spin = 1.0; }
+
+// =============================================================================
 // Buddy Panel
 // =============================================================================
 var STAGE_INFO = [
@@ -2182,6 +2298,7 @@ function getStageStart(idx) {
 
 function updateBuddyPanel(buddy) {
   if (!buddy) return;
+  var prevXp = _buddyXp;
   _buddyXp = buddy.xp || 0;
   var idx = STAGE_INFO.findIndex(function(s) { return s.stage === buddy.stage; });
   if (idx < 0) idx = 0;
@@ -2189,8 +2306,12 @@ function updateBuddyPanel(buddy) {
   var stageStart = getStageStart(idx);
   var stageEnd = info.next;
   var pct = idx >= STAGE_INFO.length - 1 ? 100 : Math.min(100, Math.round((_buddyXp - stageStart) / (stageEnd - stageStart) * 100));
-  document.getElementById('buddy-avatar').style.background = info.bg;
-  document.getElementById('buddy-avatar').textContent = info.emoji;
+  // 3D model: reload on stage change, bounce on XP gain
+  if (buddy.stage && buddy.stage !== _buddyStage3D) {
+    _b3dLoadModel(buddy.stage);
+  } else if (_buddyXp > prevXp) {
+    buddyTriggerBounce();
+  }
   document.getElementById('buddy-stage-label').textContent = info.label;
   document.getElementById('buddy-level').textContent = buddy.level || 1;
   document.getElementById('buddy-xp-fill').style.width = pct + '%';
@@ -2338,6 +2459,7 @@ function tradeSwap() {
         '<div class="text-sm text-sec">Received: ~' + formatNum(parseFloat(d.amountOut) / 1e18) + ' ' + escapeHtml(tokenOut) + '</div>' +
         '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
       log('TRADE', 'Swap success! Tx: ' + d.txHash.slice(0,10) + '...');
+      buddyTriggerSpin();
       if (d.buddyState) updateBuddyPanel(d.buddyState);
       loadHeader();
     } else {
@@ -2400,6 +2522,7 @@ function vaultDeposit(token) {
         '<div class="text-sm text-sec">Vault: ' + escapeHtml(d.vault.name) + ' (' + escapeHtml(d.vault.platform) + ')</div>' +
         '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
       log('VAULT', 'Deposit success! Tx: ' + d.txHash.slice(0,10) + '...');
+      buddyTriggerSpin();
       if (d.buddyState) updateBuddyPanel(d.buddyState);
       loadHeader();
     } else {
@@ -2446,6 +2569,7 @@ function lendingSupply(token) {
         '<div class="text-sm text-sec">Supplied: ' + escapeHtml(d.amountSupplied) + ' ' + escapeHtml(token) + '</div>' +
         '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
       log('LENDING', 'Supply success! Tx: ' + d.txHash.slice(0,10) + '...');
+      buddyTriggerSpin();
       if (d.buddyState) updateBuddyPanel(d.buddyState);
       loadHeader();
     } else {
@@ -2517,6 +2641,7 @@ function addLiquidity(token) {
         '<div class="text-sm text-sec">LP tokens received: ' + (d.lpTokensReceived || '0') + '</div>' +
         '<div class="text-sm text-sec">Gas used: ' + (d.gasUsed || 'n/a') + '</div>';
       log('LP', 'Liquidity added! Tx: ' + d.txHash.slice(0,10) + '...');
+      buddyTriggerSpin();
       if (d.buddyState) updateBuddyPanel(d.buddyState);
       loadHeader();
     } else {
@@ -2707,6 +2832,7 @@ function runTests() {
 // =============================================================================
 window.onload = function() {
   log('INFO', 'Dashboard loaded');
+  initBuddy3D();
   loadHeader();
   runHealth();
   loadResearchSummary();
