@@ -2194,8 +2194,8 @@ function initBuddy3D() {
   _b3dScene.background = new THREE.Color(0x0d1117);
 
   _b3dCamera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
-  _b3dCamera.position.set(0, 2.0, 3.2);
-  _b3dCamera.lookAt(0, 0.5, 0);
+  _b3dCamera.position.set(0, 1.4, 2.2);
+  _b3dCamera.lookAt(0, 0.6, 0);
 
   _b3dRenderer = new THREE.WebGLRenderer({ antialias: true });
   _b3dRenderer.setPixelRatio(window.devicePixelRatio || 1);
