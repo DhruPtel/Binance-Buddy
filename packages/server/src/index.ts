@@ -2251,7 +2251,7 @@ function _b3dLoop() {
       _b3dModel.rotation.y += 0.18;
       _b3dAnimState.spin = Math.max(0, _b3dAnimState.spin - 0.02);
     } else {
-      _b3dModel.rotation.y = Math.PI + Math.sin(t * 0.5) * 0.15;
+      _b3dModel.rotation.y = Math.sin(t * 0.5) * 0.15;
     }
     // Event: bounce on XP gain
     if (_b3dAnimState.bounce > 0) {
