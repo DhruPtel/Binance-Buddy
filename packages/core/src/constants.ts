@@ -163,7 +163,7 @@ export const RESEARCH_MAX_API_CALLS = 3;
 // ---------------------------------------------------------------------------
 
 export const XP_REWARDS: Record<string, number> = {
-  trade_executed: 10,
+  trade_executed: 30,
   profitable_trade: 15,
   daily_checkin: 5,
   wallet_scan: 3,
@@ -174,6 +174,7 @@ export const XP_REWARDS: Record<string, number> = {
   vault_deposit: 25,
   lp_entry: 30,
   lending_supply: 20,
+  research_action: 10,
 };
 
 // ---------------------------------------------------------------------------

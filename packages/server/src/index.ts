@@ -358,7 +358,8 @@ app.get('/api/research/protocol/:slug', async (req, res) => {
       (report as { category: ProtocolCategory }).category = registryEntry.category;
     }
 
-    res.json(report);
+    awardXpForAction('research_action');
+    res.json({ ...report, buddyState });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -2271,10 +2272,10 @@ function buddyTriggerSpin()   { _b3dAnimState.spin = 1.0; }
 // Buddy Panel
 // =============================================================================
 var STAGE_INFO = [
-  { stage: 'seedling', label: 'Seedling', next: 100, color: '#0ECB81', bg: 'linear-gradient(135deg,#0ECB81,#0a9960)', emoji: '🌱' },
-  { stage: 'sprout',   label: 'Sprout',   next: 500, color: '#8BC34A', bg: 'linear-gradient(135deg,#8BC34A,#5d8a1e)', emoji: '🌿' },
-  { stage: 'bloom',    label: 'Bloom',    next: 2000, color: '#F0B90B', bg: 'linear-gradient(135deg,#F0B90B,#b88900)', emoji: '🌸' },
-  { stage: 'guardian', label: 'Guardian', next: 5000, color: '#1890FF', bg: 'linear-gradient(135deg,#1890FF,#0050b3)', emoji: '🔵' },
+  { stage: 'seedling', label: 'Seedling', next: 30,   color: '#0ECB81', bg: 'linear-gradient(135deg,#0ECB81,#0a9960)', emoji: '🌱' },
+  { stage: 'sprout',   label: 'Sprout',   next: 80,   color: '#8BC34A', bg: 'linear-gradient(135deg,#8BC34A,#5d8a1e)', emoji: '🌿' },
+  { stage: 'bloom',    label: 'Bloom',    next: 150,  color: '#F0B90B', bg: 'linear-gradient(135deg,#F0B90B,#b88900)', emoji: '🌸' },
+  { stage: 'guardian', label: 'Guardian', next: 300,  color: '#1890FF', bg: 'linear-gradient(135deg,#1890FF,#0050b3)', emoji: '🔵' },
   { stage: 'apex',     label: 'Apex',     next: 9999, color: '#B659FF', bg: 'linear-gradient(135deg,#B659FF,#7c1eb3)', emoji: '⚡' }
 ];
 

@@ -100,10 +100,10 @@ export type Mood = 'ecstatic' | 'happy' | 'neutral' | 'worried' | 'anxious';
 
 export const XP_THRESHOLDS: Record<EvolutionStage, number> = {
   seedling: 0,
-  sprout: 100,
-  bloom: 500,
-  guardian: 2000,
-  apex: 5000,
+  sprout: 30,
+  bloom: 80,
+  guardian: 150,
+  apex: 300,
 };
 
 export type XPSource =
@@ -117,7 +117,8 @@ export type XPSource =
   | 'achievement_unlocked'
   | 'vault_deposit'
   | 'lp_entry'
-  | 'lending_supply';
+  | 'lending_supply'
+  | 'research_action';
 
 export interface BuddyState {
   creatureType: CreatureType;
