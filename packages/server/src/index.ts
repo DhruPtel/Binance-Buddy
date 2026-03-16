@@ -125,14 +125,14 @@ function awardXpForAction(source: XPSource): BuddyState {
 // Token symbol → address resolver
 // ---------------------------------------------------------------------------
 
-function resolveToken(symbolOrAddress: string): string {
+function resolveToken(symbolOrAddress: string): string | null {
   if (symbolOrAddress.startsWith('0x')) return symbolOrAddress;
   const upper = symbolOrAddress.toUpperCase();
   if (upper === 'BNB') return NATIVE_BNB_ADDRESS;
   if (upper === 'WBNB') return WBNB_ADDRESS;
   const addr = SAFE_TOKENS[upper];
   if (addr) return addr;
-  throw new Error(`Unknown token symbol: ${symbolOrAddress}. Use a contract address or known symbol (BNB, CAKE, USDT, USDC, BUSD, ETH, BTCB).`);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -527,6 +527,8 @@ app.post('/api/swap/quote', async (req, res) => {
   try {
     const tokenInAddr = resolveToken(tokenIn);
     const tokenOutAddr = resolveToken(tokenOut);
+    if (!tokenInAddr) { res.status(400).json({ error: `Unknown token: ${tokenIn}` }); return; }
+    if (!tokenOutAddr) { res.status(400).json({ error: `Unknown token: ${tokenOut}` }); return; }
     const amountInWei = BigInt(Math.floor(amountBnb * 1e18)).toString();
     const bnbPrice = await getBnbPriceUsd(COINGECKO_API_KEY || undefined);
     const walletAddress = agentWallet?.address ?? '0x0000000000000000000000000000000000000001';
@@ -570,6 +572,8 @@ app.post('/api/swap/execute', async (req, res) => {
   try {
     const tokenInAddr = resolveToken(tokenIn);
     const tokenOutAddr = resolveToken(tokenOut);
+    if (!tokenInAddr) { res.status(400).json({ error: `Unknown token: ${tokenIn}` }); return; }
+    if (!tokenOutAddr) { res.status(400).json({ error: `Unknown token: ${tokenOut}` }); return; }
     const amountInWei = BigInt(Math.floor(amountBnb * 1e18)).toString();
     const bnbPrice = await getBnbPriceUsd(COINGECKO_API_KEY || undefined);
     const bnbBal = await getBnbBalance(provider, agentWallet.address);
@@ -703,6 +707,10 @@ app.post('/api/lending/supply/execute', async (req, res) => {
 
   // Resolve token symbol → address
   const tokenAddress = resolveToken(token);
+  if (!tokenAddress) {
+    res.status(400).json({ error: `Unknown token: ${token}. Use a contract address or a known symbol (BNB, USDT, USDC, BUSD, ETH, BTCB).` });
+    return;
+  }
 
   try {
     const signer = agentWallet.connect(provider);
@@ -769,6 +777,7 @@ app.post('/api/lp/execute', async (req, res) => {
 
   try {
     const tokenAddress = resolveToken(token);
+    if (!tokenAddress) { res.status(400).json({ error: `Unknown token: ${token}` }); return; }
     const bnbPrice = await getBnbPriceUsd(process.env.COINGECKO_API_KEY || undefined);
     const signer = agentWallet.connect(provider);
 
