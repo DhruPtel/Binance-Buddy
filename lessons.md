@@ -460,3 +460,62 @@ The agent reads this at session start and never makes the same mistake twice.
 - **Fix**: compare `underlying().toLowerCase()` against known `SAFE_TOKENS` addresses.
   The resolver maps `underlyingAddress → vTokenAddress`. Cache the full map for 30 minutes
   since markets rarely change.
+
+---
+
+## 3D Buddy Renderer + Dashboard Polish (Mar 16)
+
+### Three.js GLB Loading in Inline Dashboard HTML
+- Three.js r128 + GLTFLoader + OrbitControls loaded via CDN `<script>` tags in the
+  template literal HTML `<head>`. Order matters: three.min.js first, then GLTFLoader
+  (attaches `THREE.GLTFLoader`), then OrbitControls (attaches `THREE.OrbitControls`).
+- OrbitControls was removed after testing — for a display-only character viewer, user
+  rotation adds nothing and confuses the presentation. Fixed camera is better for demos.
+- GLB model centering: compute `Box3` from loaded scene, get center + size, normalize
+  scale to `1.6 / maxDim`, translate to `-center * scale`. Store `baseScale` and `baseY`
+  in `userData` so animations have stable references.
+
+### Camera Iteration Pattern
+- Getting the right camera angle for a character viewer took 5 iterations. Start with
+  the defaults, then adjust one axis at a time. Final: `(0, 1.4, 2.8)` FOV 40°,
+  `lookAt(0, 0.6, 0)` — front-facing, slightly elevated, full body visible.
+- Don't add `Math.PI` to rotation unless the model's default facing is away from camera.
+  Most GLB exports face +Z (toward camera at default). Test before assuming.
+
+### Animation State Machine
+- Idle animations should be almost imperceptible. The first attempt (Y bobbing + Z tilt +
+  breathing scale) was too busy. Final: just a slow Y-axis look-around (`sin(t*0.5)*0.15`
+  ≈ 8° each way). Less is more for a persistent on-screen companion.
+- Event animations (bounce, spin) use a `0→1` decay state: set to `1.0` on trigger,
+  subtract each frame. Animation code checks `if (state > 0)` and applies the effect.
+  Clean, composable, no timers needed.
+- Spin event must override idle rotation (`if/else`), not add to it. Otherwise the idle
+  `rotation.y = sin(...)` resets the spin every frame.
+
+### express.static for Serving GLB Models
+- `app.use('/public', express.static(...))` with `__dirname + '/../public'` works for
+  CJS output (module: NodeNext without `"type": "module"` in package.json).
+- `import.meta.url` does NOT work in files that compile to CommonJS — TypeScript error
+  TS1470. Use `__dirname` instead. Check `module` setting in tsconfig.base.json.
+
+### resolveToken Must Not Throw
+- A helper function called from Express route handlers must NEVER throw uncaught errors.
+  `resolveToken()` was called outside a try block in the lending endpoint — an unknown
+  token symbol crashed the entire server process.
+- **Fix**: return `null` for unknown inputs, let the caller decide how to respond (400).
+  Defensive returns > thrown exceptions in HTTP handler utility functions.
+
+### Dashboard JS Validation Ritual
+- After every change to the inline `<script>` in the template literal:
+  1. Kill old server (`kill $(lsof -ti:3000)`)
+  2. Start fresh server
+  3. `curl -s localhost:3000 | extract <script> block | node --check`
+- The old server may still be running from a previous session. EADDRINUSE means your
+  curl is hitting stale code. Always kill first, then verify.
+- `tsc --noEmit` does NOT validate JavaScript inside template literal strings. Only
+  `node --check` on the extracted JS catches syntax errors in the dashboard code.
+
+### API Key Leaks in .env.example
+- `.env.example` should contain placeholder values only (empty strings or `your_key_here`).
+  Never commit real API keys — even "free tier" keys. Check `git diff .env.example`
+  before committing.

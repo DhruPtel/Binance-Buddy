@@ -7,16 +7,29 @@ evolution: seedling/sprout → cub, bloom → teen, guardian/apex → adult. Idl
 animation (gentle Y-axis sine), event animations (bounce on XP, spin on trade).
 Research actions award XP. Evolution thresholds lowered for testing. resolveToken crash fixed.
 
-## Known Issues / Next Steps
+## Known Issues / Next Steps (prioritized for demo)
+### MUST FIX (demo-breaking)
 1. Action buttons (Supply, Deposit, Add Liquidity) use browser prompt() for amount —
-   bad UX. Should route through agent chat instead: user types intent, agent orchestrates.
-2. LP entry fails on unknown tokens (e.g. MBOX) not in SAFE_TOKENS — needs swap-first flow
-   where agent swaps BNB → token first, then calls addLiquidityETH. Not just a lookup fix.
-3. Lending supply fails on FDUSD — token not in SAFE_TOKENS, resolveToken returns null → 400.
-   Need to add FDUSD to SAFE_TOKENS or support contract address input from the UI.
-4. Action buttons should send natural-language instructions to agent chat, not call endpoints
-   directly. Multi-step flows (swap → deposit, swap → LP entry) need the agent to orchestrate
-   via tool loop. Buttons should pre-fill the chat input and submit, not bypass the agent.
+   bad UX. Should prefill agent chat with natural language instruction and auto-send.
+   Small refactor: build instruction string → set chat input value → call chatSend().
+2. Agent only has swap_tokens tool — needs deposit_vault, supply_lending, add_liquidity
+   tools in the tool registry so the agent can orchestrate multi-step flows. The endpoint
+   code already exists; just needs tool wrappers in packages/ai/src/tools/index.ts.
+3. Add FDUSD (+ MBOX, BTCB if missing) to SAFE_TOKENS — 5 min, prevents 400 errors
+   when these tokens appear in Venus/Beefy pool rows.
+
+### SHOULD FIX (polish)
+4. End-to-end demo walkthrough on funded wallet — always reveals 2-3 crashes.
+5. Graceful errors for unfunded wallet / missing ANTHROPIC_API_KEY — should return
+   helpful messages, not 500s.
+6. Reset .buddy-state.json before demo to start at seedling/0 XP.
+
+### LEAVE AS-IS for demo
+- Alerts not monitoring (concept shown, no one will test)
+- Sniper execution not wired (listener activates, enough for demo)
+- Extension not tested E2E (mention, don't demo)
+- Telegram personality (mention OpenClaw integration)
+- LP failing on unknown tokens (don't click those pools)
 
 ## 3D Buddy Renderer (Mar 16)
 - Three.js r128 GLB loading in dashboard buddy panel (250px canvas, dark bg)
