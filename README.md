@@ -1,185 +1,243 @@
-# Binance Buddy
+# 🐻 Binance Buddy
 
-A Tamagotchi-style AI companion for BNB Chain DeFi. Built for the BNB Chain hackathon.
+> A Tamagotchi-style AI DeFi companion for BNB Chain. Your bear grows as you trade.
 
-Your Buddy lives on the BSC blockchain. It scans the market, finds yield opportunities, and executes DeFi actions on your behalf — swaps, lending, liquidity provision, and autonomous portfolio moves. It evolves as you trade.
+Binance Buddy is an autonomous AI agent that manages a BNB Chain wallet, executes DeFi strategies, and evolves a 3D bear companion based on your on-chain activity. It combines a real-time research pipeline, a Claude-powered execution agent, and a gamified progression system into a single dashboard.
 
 ---
 
-## Demo Flow
+## Section 1 — The Bear
 
-> **Note:** Token→BNB swaps are currently excluded from the demo due to a BSC mainnet revert issue. All BNB→token and multi-step flows work.
+### Your Companion Evolves With You
 
-### 1. Research Pipeline
+The bear isn't cosmetic. It reflects your actual DeFi activity — every swap, yield deposit, and research session earns XP and pushes your bear toward the next stage.
 
-The research agent runs in the background every 30 minutes, pulling live data from DeFiLlama.
-
-1. Open the dashboard at `http://localhost:3000`
-2. Click **Lending** in the Research panel → see Venus, Alpaca, and other BSC lending protocols with live TVL and best APY
-3. Click any protocol row → deep dive: top pools, strategy brief (Claude Haiku), APY/TVL charts
-4. Click **Liquidity Providing** → PancakeSwap, Thena, and other DEX pools with volume and fee APY
-
-### 2. Agent Chat
-
-1. In the Agent Chat panel, type: `what tokens do I hold?`
-   - Buddy calls `check_positions`, scans all BEP-20 tokens via GoldRush, returns live balances
-2. Type: `where should I put my BNB to earn yield?`
-   - Buddy calls `get_research` for current opportunities, returns top picks with real APY numbers
-3. Type: `find farms`
-   - Buddy calls `find_farms`, shows ranked PancakeSwap V2 farms with risk scores
-
-### 3. BNB → Token Swap
-
-**Via agent chat:**
 ```
-Swap 0.01 BNB for USDT
+    🐻‍❄️              🐻              🐻              🦾🐻             🐻‍🔥
+  [ CUB ]         [ TEEN ]        [ ADULT ]       [ GUARDIAN ]     [ APEX ]
+ Seedling  ───►   Sprout   ───►    Bloom   ───►   Guardian  ───►    Apex
+   0 XP           30 XP           80 XP           150 XP           300 XP
 ```
-- Buddy calls `swap_tokens` → PancakeSwap V2 quote → approval check → executes on-chain → reports tx hash in one line
 
-**Via Trade panel (direct, no LLM):**
-1. Set **From** to BNB, **To** to CAKE, **Amount** to 0.01
-2. Click **Swap** → hits `/api/swap/execute` directly → result + BSCScan link
+| Stage | XP Required | Trenches | Personality |
+|---|---|---|---|
+| 🌱 **Seedling** | 0 | Locked | Tiny, eager, learning the ropes |
+| 🌿 **Sprout** | 30 | Locked | Getting curious, watching the market |
+| 🌸 **Bloom** | 80 | **Unlocked** | Confident trader, sharp instincts |
+| 🛡️ **Guardian** | 150 | Unlocked | Seasoned, protective, battle-tested |
+| ⚡ **Apex** | 300 | Unlocked | Legend of the chain |
 
-### 4. Venus Lending Supply
+Three animated 3D GLB models render in the dashboard — cub, teen, and adult — each with idle animations, mood expressions, and event reactions (bounce on trade success, spin on level-up).
 
-**Via agent chat (multi-step, fully autonomous):**
-```
-Supply USDT to Venus
-```
-Buddy orchestrates:
-1. Calls `check_positions` → sees wallet has USDT or 0 USDT
-2. If no USDT: calls `swap_tokens(BNB → USDT, small amount)` automatically
-3. Calls `supply_lending(USDT)` → resolves vUSDT via Venus Comptroller → ERC-20 approve → vToken.mint()
-4. Reports: `Supplied 5.2 USDT to Venus. Tx: 0xabc...`
-
-**Via Research panel (one click):**
-1. Go to **Lending** → Venus core pool
-2. Click **[Supply →]** on the USDT row → message sent to agent chat → agent executes
-
-### 5. Buddy Evolution
-
-Every action awards XP:
+### Earning XP
 
 | Action | XP |
 |---|---|
-| Trade executed | 30 |
-| Lending supply | 20 |
-| LP entry | 30 |
-| Vault deposit | 25 |
-| Chat interaction | 1 |
-| Research viewed | 10 |
-
-Evolution stages: **Seedling** (0) → **Sprout** (30) → **Bloom** (80) → **Guardian** (150) → **Apex** (300)
-
-Watch the 3D bear model in the top-left panel. It bounces on XP gain, spins on trade execution, and changes model on evolution.
-
-Trenches Mode unlocks at Bloom (80 XP) — enables sniper, higher slippage (15%), larger trade limits.
-
-### 6. Autonomous Mode
-
-1. Open the **Autonomous Mode** panel
-2. Click **Scan Farms** → Buddy finds current PancakeSwap farm opportunities
-3. Click **Activate Autonomous** → the page scrolls to Agent Chat so you can watch live:
-   - **Phase 1:** Buddy plans 3 small trades with reasoning
-   - **Phase 2:** Executes each step sequentially (5s between steps) — you see every tool call and tx hash in chat
-   - **Phase 3:** Complete — activity log shows summary
+| Trade executed | +30 |
+| LP position opened | +30 |
+| Vault deposit | +25 |
+| Snipe success | +25 |
+| Profitable trade | +15 |
+| Lending supply | +20 |
+| Farm entered | +12 |
+| Research action | +10 |
+| Wallet scan | +3 |
+| Chat interaction | +1 |
 
 ---
 
-## Architecture
+## Section 2 — AI & Agentic Architecture
+
+### Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     packages/server                          │
-│  Express dashboard + REST API (port 3000)                   │
-│  All endpoints callable by OpenClaw runtime                 │
-└────────────┬────────────────────────────────────────────────┘
-             │
-     ┌───────┼──────────────┐
-     ▼       ▼              ▼
-┌─────────┐ ┌────────┐ ┌──────────┐
-│   ai    │ │blockchain│ │  buddy  │
-│ agent   │ │ DEX     │ │  XP     │
-│ research│ │ lending │ │ moods   │
-│ tools   │ │ LP      │ │ stages  │
-│ prompts │ │ yield   │ └──────────┘
-└─────────┘ └────────┘
-     │
-     ▼
-Claude Sonnet 4.6 (Execution Agent)
-Claude Haiku (Research Briefs)
+┌─────────────────────────────────────────────────────────────────┐
+│                        RESEARCH PIPELINE                        │
+│                        (every 30 min)                           │
+│                                                                 │
+│  DeFiLlama API ──► Category Analysis ──► Protocol Deep Dives   │
+│       │                                        │                │
+│       └──────────────► Claude Haiku ◄──────────┘               │
+│                        strategy briefs                          │
+│                              │                                  │
+│                    ResearchReport in memory                     │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │  getLatestReport()
+┌──────────────────────────────▼──────────────────────────────────┐
+│                       EXECUTION AGENT                           │
+│                    (on every user message)                      │
+│                                                                 │
+│  User / Autonomous Mode                                         │
+│         │                                                       │
+│         ▼                                                       │
+│   Claude Sonnet 4 ──► Tool Selection ──► Tool Execution        │
+│         ▲                                       │               │
+│         └─────────── Tool Result ───────────────┘               │
+│                    (up to 8 rounds)                             │
+│                                                                 │
+│   ┌─────────────────────────────────────────────────────┐      │
+│   │                  GUARDRAIL PIPELINE                 │      │
+│   │  simulate → spending limit → fee reserve →          │      │
+│   │  risk gate → protocol allowlist → execute           │      │
+│   └─────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                      AUTONOMOUS MODE                            │
+│                    (30-min cycle timer)                         │
+│                                                                 │
+│  Scan Farms ──► Fetch Wallet Balance ──► Build 3 Steps         │
+│                      (60% BNB / 3)              │               │
+│                                                 ▼               │
+│                              Execute Step 1 → Step 2 → Step 3  │
+│                              (5s pause between steps)           │
+│                              Skip on failure, stop on CB trip   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Dual-agent pattern:**
-- **Research Agent** (slow, 30-min cadence) → pulls DeFiLlama, GoldRush, Brave → writes report to memory
-- **Execution Agent** (fast, per message) → reads latest report + wallet state → plans + executes → reports
+### Research Pipeline
 
-**Guardrails run at the engine layer, not the AI layer.** The LLM cannot bypass simulation, spending limits, or approval checks. All guardrail checks are disabled for demo mode.
+Runs every 30 minutes as an in-process cron:
+
+1. **DeFiLlama fetch** — pulls yield pools, protocol TVL, APY data for BSC
+2. **Category analysis** — groups protocols into DEX / lending / yield / liquidity
+3. **Protocol deep dives** — per-protocol APY trends, risk alerts, pool history
+4. **Claude Haiku brief** — generates plain-language strategy recommendations
+5. **Report stored in memory** — served to the execution agent on every chat turn via `GET /api/research/latest`
+
+### Execution Agent — 12 Tools
+
+The execution agent is Claude Sonnet 4 with a full tool loop (up to 8 rounds per request):
+
+| Tool | What it does |
+|---|---|
+| `swap_tokens` | BNB↔token or token↔token via PancakeSwap V2 |
+| `deposit_vault` | Deposit into Beefy yield vaults |
+| `supply_lending` | Supply assets to Venus lending protocol |
+| `add_liquidity` | Add to PancakeSwap V2/V3 liquidity pools |
+| `get_research` | Fetch latest research report or protocol deep-dive |
+| `resolve_contract` | Resolve token/protocol address (DeFiLlama → Brave Search → on-chain verify) |
+| `check_positions` | Fresh scan of all current wallet positions |
+| `scan_wallet` | Full wallet state: BNB balance, BEP-20 tokens, USD values |
+| `get_token_info` | Token metadata: price, market cap, liquidity, risk flags |
+| `find_farms` | Top yield opportunities ranked by risk-adjusted APY |
+| `set_alert` | Register price or event alerts |
+| `snipe_launch` | Monitor PancakeSwap factory for new pair launches (Trenches mode) |
+
+### Contract Resolution
+
+Addresses are never hallucinated. Every address goes through a 3-step pipeline:
+
+```
+Token symbol / name
+       │
+       ▼
+1. SAFE_TOKENS lookup (hardcoded verified addresses)
+       │ miss
+       ▼
+2. DeFiLlama pool cache (BSC pools, filtered by symbol)
+       │ miss
+       ▼
+3. Brave Search → parse result → on-chain verify via symbol() + decimals()
+       │
+       ▼
+Verified contract address (or error — never a guess)
+```
+
+### Guardrail Pipeline
+
+Every transaction passes through this pipeline before execution. The LLM cannot bypass it:
+
+```
+eth_call simulation → spending limit check → BNB fee reserve check
+→ risk gate → protocol allowlist → ✅ execute OR ❌ block with reason
+```
+
+- **Normal mode:** 1% max slippage, 1 BNB max per trade, 0.0005 BNB gas reserve
+- **Trenches mode:** 15% max slippage, higher position limits, sniper tool unlocked
+- **Circuit breaker:** 3 consecutive failures → auto-pause until manual reset
 
 ---
 
-## Stack
+## Section 3 — Setup
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm (`npm install -g pnpm`)
+
+### Install
+
+```bash
+git clone https://github.com/your-org/binancebuddy
+cd binancebuddy
+pnpm install
+```
+
+### Environment Variables
+
+Create a `.env` file at the project root:
+
+```env
+# Required
+PRIVATE_KEY=0x...              # Agent wallet private key (generate a fresh wallet)
+BSC_RPC_URL=https://bsc-dataseed.binance.org/
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Strongly recommended
+BRAVE_SEARCH_API_KEY=...       # Contract resolution fallback
+MORALIS_API_KEY=...            # Full BEP-20 token discovery
+
+# Optional
+COVALENT_API_KEY=...           # GoldRush fallback for token data
+ANKR_API_KEY=...               # Ankr RPC fallback
+COINGECKO_API_KEY=...          # Higher rate limits on price feeds
+```
+
+> ⚠️ **Use a dedicated agent wallet.** Generate a fresh private key — never use your main wallet. The agent will autonomously execute trades with whatever BNB you fund it.
+
+### Run
+
+```bash
+pnpm exec tsx packages/server/src/index.ts
+```
+
+Open **http://localhost:3000**
+
+### Fund & Start
+
+1. Copy the agent wallet address from the dashboard
+2. Send BNB to it (0.05–0.1 BNB is enough to start)
+3. Chat with Buddy or click **Activate Autonomous** to let it trade
+
+---
+
+## Tech Stack
 
 | Layer | Tech |
 |---|---|
-| Runtime | Node 23, TypeScript 5.7, pnpm workspaces, Turborepo |
-| Blockchain | ethers.js 6, BSC mainnet, PancakeSwap V2/V3, Venus, Beefy |
-| AI | Claude Sonnet 4.6 (execution), Claude Haiku (research briefs) |
-| Data | DeFiLlama, GoldRush/Covalent, Brave Search, CoinGecko |
-| Frontend | Inline HTML dashboard, Three.js r128 (3D buddy), Chart.js v4 |
-| Extension | Chrome MV3, React 18, Tailwind CSS, Vite |
-| Telegram | grammy, OpenClaw runtime integration |
+| Runtime | Node.js 23, TypeScript 5.7, pnpm workspaces |
+| Blockchain | ethers.js 6, BSC Mainnet (chain ID 56) |
+| AI | Anthropic Claude Sonnet 4 (execution), Claude Haiku (research) |
+| DeFi | PancakeSwap V2/V3, Venus Protocol, Beefy Finance |
+| Data | DeFiLlama, Moralis, CoinGecko, Brave Search |
+| 3D | Three.js r128, GLB models |
+| Dashboard | Express + inline HTML/CSS/JS |
 
----
+## Monorepo Structure
 
-## Setup
-
-```bash
-# Install
-pnpm install
-
-# Configure
-cp .env.example .env
-# Required: ANTHROPIC_API_KEY
-# Optional: MORALIS_API_KEY (tx history), COVALENT_API_KEY (full token scan)
-
-# Build dependencies
-pnpm --filter @binancebuddy/core build
-pnpm --filter @binancebuddy/blockchain build
-pnpm --filter @binancebuddy/buddy build
-pnpm --filter @binancebuddy/ai build
-
-# Start
-pnpm --filter @binancebuddy/server dev
-# → http://localhost:3000
-
-# Tests
-pnpm test
+```
+packages/
+├── core/          # Shared types, constants, guardrail configs
+├── blockchain/    # Provider, scanner, DEX executor, LP, lending, vault
+├── ai/            # Research agent, execution agent, 12 tools, system prompt
+├── buddy/         # Evolution engine, XP system, mood state machine
+├── strategies/    # Sniper, farm scanner, risk scoring
+├── server/        # Express dashboard + all API endpoints
+├── extension/     # Chrome extension (sidepanel + popup)
+└── telegram/      # Telegram bot (grammy)
 ```
 
-The server auto-generates an agent wallet on first run and prints the address to console. Fund it with a small amount of BNB (0.05 BNB is enough for the demo) before attempting swaps.
-
 ---
 
-## Known Limitations
-
-- **Token→BNB swaps revert on-chain.** Root cause under investigation (likely BSC mainnet RPC state divergence during simulation). BNB→token swaps work. Demo all buy-side flows.
-- **GoldRush token scan** requires `COVALENT_API_KEY`. Without it, `check_positions` falls back to the 11-token SAFE_TOKENS list.
-- **Research report** is in-memory only. Restarting the server clears it — click Background ↺ to regenerate.
-- **Extension** built but not E2E tested in browser. The server API it talks to is production-ready.
-- **Telegram bot** wired and functional; requires `TELEGRAM_BOT_TOKEN` and a public webhook URL.
-
----
-
-## Packages
-
-| Package | Description |
-|---|---|
-| `@binancebuddy/core` | Shared types, constants, `resolveToken`, BigInt serializer |
-| `@binancebuddy/blockchain` | Provider, wallet scanner, DEX executor, lending, vault, LP |
-| `@binancebuddy/ai` | Research agent, execution agent, 12 tools, system prompt |
-| `@binancebuddy/buddy` | XP, evolution stages, mood engine |
-| `@binancebuddy/strategies` | Sniper, farm scorer, risk scoring |
-| `@binancebuddy/server` | Express server, all REST endpoints, dashboard HTML |
-| `@binancebuddy/extension` | Chrome extension (popup + sidepanel) |
-| `@binancebuddy/telegram` | Telegram bot (grammy) |
+*Built for the BNB Chain hackathon. The bear is real. The trades are real. Grow your buddy.*
