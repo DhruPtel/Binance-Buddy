@@ -611,6 +611,68 @@ app.post('/api/swap/execute', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Send Tokens (withdraw from agent wallet)
+// ---------------------------------------------------------------------------
+
+app.post('/api/send-tokens', async (req, res) => {
+  if (!agentWallet) {
+    res.status(503).json({ error: 'Agent wallet not configured.' });
+    return;
+  }
+
+  const { token, amount, recipient } = req.body as {
+    token?: string;
+    amount?: string;
+    recipient?: string;
+  };
+
+  if (!token || !amount || !recipient) {
+    res.status(400).json({ error: 'token, amount, and recipient are required' });
+    return;
+  }
+  if (!recipient.startsWith('0x') || recipient.length !== 42) {
+    res.status(400).json({ error: 'Invalid recipient address' });
+    return;
+  }
+
+  const parsedAmount = parseFloat(amount);
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    res.status(400).json({ error: 'Amount must be a positive number' });
+    return;
+  }
+
+  try {
+    const signer = agentWallet.connect(provider);
+    const amountWei = ethers.parseEther(amount);
+
+    if (token.toUpperCase() === 'BNB') {
+      // Native BNB transfer
+      const tx = await signer.sendTransaction({ to: recipient, value: amountWei });
+      const receipt = await tx.wait();
+      res.json({ success: true, txHash: tx.hash, gasUsed: receipt?.gasUsed.toString() });
+    } else {
+      // BEP-20 token transfer
+      const tokenAddr = resolveToken(token);
+      if (!tokenAddr) {
+        res.status(400).json({ error: `Unknown token: ${token}` });
+        return;
+      }
+      const erc20 = new ethers.Contract(tokenAddr, [
+        'function transfer(address to, uint256 amount) external returns (bool)',
+        'function decimals() external view returns (uint8)',
+      ], signer);
+      const decimals = await erc20.decimals();
+      const tokenAmount = ethers.parseUnits(amount, decimals);
+      const tx = await erc20.transfer(recipient, tokenAmount);
+      const receipt = await tx.wait();
+      res.json({ success: true, txHash: tx.hash, gasUsed: receipt?.gasUsed.toString() });
+    }
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Vault Routes (Beefy deposit via agent wallet)
 // ---------------------------------------------------------------------------
 
@@ -1186,14 +1248,8 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   </div>
 </div>
 
-<!-- Controls bar -->
+<!-- Controls bar (minimal) -->
 <div class="controls-bar">
-  <div class="wallet-input-wrap">
-    <input type="text" id="global-wallet" placeholder="External wallet to scan (0x...)" style="flex:1" />
-    <button class="btn btn-sec btn-sm" onclick="setGlobalWallet()">Set</button>
-    <button class="btn btn-sec btn-sm" onclick="useAgentWallet()">Use Agent</button>
-  </div>
-  <div id="active-wallet-display" class="text-sec text-sm mono" style="white-space:nowrap"></div>
   <div class="mode-toggle">
     <button id="btn-normal" class="mode-btn normal active" onclick="setMode('normal')">● Normal</button>
     <button id="btn-trenches" class="mode-btn trenches" onclick="setMode('trenches')">⚡ Trenches</button>
@@ -1206,18 +1262,52 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   <!-- Row 1: Health | Buddy -->
   <div class="grid-2">
 
-    <!-- Health -->
-    <div class="card">
+    <!-- Agent Overview -->
+    <div class="card" id="agent-overview-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <h2 style="margin:0">System Health</h2>
-        <button class="btn btn-sec btn-sm" onclick="runHealth()">Check</button>
+        <h2 style="margin:0">Agent Overview</h2>
+        <button class="btn btn-sec btn-sm" onclick="refreshAgentOverview()">Refresh</button>
       </div>
-      <div id="health-list">
-        <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Provider</span><span class="status-detail">—</span></div>
-        <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Multicall3</span><span class="status-detail">—</span></div>
-        <div class="status-row"><span class="status-dot pending"></span><span class="status-label">Moralis</span><span class="status-detail">—</span></div>
-        <div class="status-row"><span class="status-dot pending"></span><span class="status-label">RateLimit</span><span class="status-detail">—</span></div>
-        <div class="status-row"><span class="status-dot pending"></span><span class="status-label">CoinGecko</span><span class="status-detail">—</span></div>
+
+      <!-- Wallet address -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span class="text-sec text-sm">Wallet:</span>
+        <span id="ao-addr" class="mono text-sm" style="color:var(--gold)">loading...</span>
+        <button class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:10px" onclick="copyAgentAddr()"><span id="copy-label">Copy</span></button>
+      </div>
+
+      <!-- BNB balance -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px;background:var(--bg-tertiary);border-radius:var(--radius-md)">
+        <div style="font-size:22px;font-weight:700;font-family:'Space Grotesk',sans-serif" id="ao-bnb">—</div>
+        <div>
+          <div class="text-sec text-sm">BNB Balance</div>
+          <div class="text-sm" id="ao-bnb-usd" style="color:var(--green)">—</div>
+        </div>
+      </div>
+
+      <!-- Token holdings -->
+      <div style="margin-bottom:12px">
+        <div class="text-sec text-sm" style="margin-bottom:6px">Token Holdings</div>
+        <div id="ao-tokens" style="font-size:12px"><span class="text-sec">Loading...</span></div>
+      </div>
+
+      <!-- Buttons -->
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button class="btn btn-sec btn-sm" onclick="createNewWallet()">Create New Wallet</button>
+      </div>
+
+      <!-- Send Tokens -->
+      <div style="border-top:1px solid var(--bg-tertiary);padding-top:12px">
+        <div class="text-sec text-sm" style="margin-bottom:8px;font-weight:600">Send Tokens</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <select id="send-token" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-md);padding:6px 8px;font-size:12px">
+            <option value="BNB">BNB</option>
+          </select>
+          <input type="number" id="send-amount" placeholder="Amount" step="0.001" min="0" style="font-size:12px" />
+          <input type="text" id="send-recipient" placeholder="Recipient address (0x...)" style="font-size:12px" />
+          <button class="btn btn-sm" onclick="sendTokens()">Send</button>
+        </div>
+        <div id="send-result" class="text-sm" style="margin-top:6px"></div>
       </div>
     </div>
 
@@ -1566,26 +1656,8 @@ function loadCbStatus() {
 }
 
 // =============================================================================
-// Global Wallet + Mode
+// Mode Toggle
 // =============================================================================
-function setGlobalWallet() {
-  var val = document.getElementById('global-wallet').value.trim();
-  if (val) {
-    _wallet = val;
-    document.getElementById('active-wallet-display').textContent = 'Active: ' + val.slice(0,6) + '...' + val.slice(-4);
-    log('INFO', 'Active wallet set: ' + val.slice(0,6) + '...' + val.slice(-4));
-  }
-}
-
-function useAgentWallet() {
-  if (_agentWalletAddr) {
-    _wallet = _agentWalletAddr;
-    document.getElementById('global-wallet').value = _agentWalletAddr;
-    document.getElementById('active-wallet-display').textContent = 'Active: Agent (' + _agentWalletAddr.slice(0,6) + '...)';
-    log('INFO', 'Using agent wallet: ' + _agentWalletAddr.slice(0,6) + '...');
-  }
-}
-
 function setMode(m) {
   _mode = m;
   document.getElementById('btn-normal').className = 'mode-btn normal' + (m === 'normal' ? ' active' : '');
@@ -1598,28 +1670,135 @@ function setMode(m) {
 }
 
 // =============================================================================
-// Health Check
+// Agent Overview
 // =============================================================================
-function runHealth() {
-  var list = document.getElementById('health-list');
-  list.innerHTML = '<div class="text-sec text-sm"><span class="spinner"></span>Checking...</div>';
-  log('HEALTH', 'Running health check...');
-  fetch('/api/health')
+var _agentTokens = [];
+
+function refreshAgentOverview() {
+  var addrEl = document.getElementById('ao-addr');
+  var bnbEl = document.getElementById('ao-bnb');
+  var bnbUsdEl = document.getElementById('ao-bnb-usd');
+  var tokensEl = document.getElementById('ao-tokens');
+  var dropdown = document.getElementById('send-token');
+
+  addrEl.textContent = 'loading...';
+  tokensEl.innerHTML = '<span class="text-sec">Loading...</span>';
+
+  fetch('/api/agent-wallet')
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      var html = '';
-      for (var k in d) {
-        var info = d[k];
-        html += '<div class="status-row"><span class="status-dot ' + info.status + '"></span>' +
-                '<span class="status-label">' + k.charAt(0).toUpperCase() + k.slice(1) + '</span>' +
-                '<span class="status-detail">' + escapeHtml(info.detail || '') + '</span></div>';
-        log('HEALTH', k + ': ' + info.status + (info.detail ? ' — ' + info.detail : ''));
+      if (d.configured && d.address) {
+        _agentWalletAddr = d.address;
+        _wallet = d.address;
+        addrEl.textContent = d.address;
+        addrEl.title = d.address;
+        var bnbBal = d.bnbBalanceFormatted || 0;
+        bnbEl.textContent = bnbBal.toFixed(4) + ' BNB';
+        // Fetch BNB price for USD
+        fetch('/api/scan/' + d.address, { method: 'POST' })
+          .then(function(r2) { return r2.json(); })
+          .then(function(scan) {
+            if (scan.wallet) {
+              var bnbPrice = 0;
+              var totalUsd = scan.wallet.totalValueUsd || 0;
+              // BNB USD = total minus token values
+              var tokenValueUsd = 0;
+              var tokens = scan.wallet.tokens || [];
+              _agentTokens = tokens;
+              for (var i = 0; i < tokens.length; i++) tokenValueUsd += tokens[i].valueUsd || 0;
+              var bnbUsd = totalUsd - tokenValueUsd;
+              bnbUsdEl.textContent = formatUsd(bnbUsd);
+
+              // Render token list
+              if (tokens.length === 0) {
+                tokensEl.innerHTML = '<span class="text-sec">No tokens detected</span>';
+              } else {
+                var html = '';
+                for (var j = 0; j < tokens.length; j++) {
+                  var t = tokens[j];
+                  html += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)">' +
+                    '<span style="font-weight:600">' + escapeHtml(t.symbol) + '</span>' +
+                    '<span>' + formatNum(t.balanceFormatted) + ' <span class="text-sec">(' + formatUsd(t.valueUsd) + ')</span></span></div>';
+                }
+                tokensEl.innerHTML = html;
+              }
+
+              // Update send dropdown
+              dropdown.innerHTML = '<option value="BNB">BNB</option>';
+              for (var k = 0; k < tokens.length; k++) {
+                var opt = document.createElement('option');
+                opt.value = tokens[k].symbol;
+                opt.textContent = tokens[k].symbol;
+                dropdown.appendChild(opt);
+              }
+            }
+          })
+          .catch(function() {
+            bnbUsdEl.textContent = '—';
+            tokensEl.innerHTML = '<span class="text-sec">Scan failed</span>';
+          });
+      } else {
+        addrEl.textContent = 'not configured';
+        bnbEl.textContent = '—';
       }
-      list.innerHTML = html;
+    })
+    .catch(function() { addrEl.textContent = 'error'; });
+}
+
+function copyAgentAddr() {
+  if (!_agentWalletAddr) return;
+  navigator.clipboard.writeText(_agentWalletAddr).then(function() {
+    var label = document.getElementById('copy-label');
+    label.textContent = 'Copied!';
+    setTimeout(function() { label.textContent = 'Copy'; }, 1500);
+  });
+}
+
+function createNewWallet() {
+  if (!confirm('This will generate a new agent wallet. The old wallet will still exist on-chain but the server will use the new one. Continue?')) return;
+  fetch('/api/agent-wallet/create', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.address) {
+        log('INFO', 'New wallet created: ' + d.address.slice(0,6) + '...');
+        refreshAgentOverview();
+      } else {
+        log('ERROR', 'Failed to create wallet: ' + (d.error || 'unknown'));
+      }
+    })
+    .catch(function(e) { log('ERROR', 'Create wallet failed: ' + e.message); });
+}
+
+function sendTokens() {
+  var token = document.getElementById('send-token').value;
+  var amount = document.getElementById('send-amount').value;
+  var recipient = document.getElementById('send-recipient').value.trim();
+  var resultEl = document.getElementById('send-result');
+
+  if (!amount || !recipient) {
+    resultEl.innerHTML = '<span style="color:var(--red)">Fill in all fields</span>';
+    return;
+  }
+
+  resultEl.innerHTML = '<span class="text-sec">Sending...</span>';
+
+  fetch('/api/send-tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token, amount: amount, recipient: recipient }),
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        resultEl.innerHTML = '<span style="color:var(--green)">Sent! TX: ' + d.txHash.slice(0,10) + '...</span>';
+        log('INFO', 'Sent ' + amount + ' ' + token + ' to ' + recipient.slice(0,6) + '...');
+        setTimeout(refreshAgentOverview, 3000);
+      } else {
+        resultEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
+      }
     })
     .catch(function(e) {
-      list.innerHTML = '<div style="color:var(--red)">' + escapeHtml(e.message) + '</div>';
-      log('ERROR', 'Health check failed: ' + e.message);
+      resultEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(e.message) + '</span>';
     });
 }
 
@@ -2687,19 +2866,13 @@ window.onload = function() {
   log('INFO', 'Dashboard loaded');
   initBuddy3D();
   loadHeader();
-  runHealth();
+  refreshAgentOverview();
   loadResearchSummary();
   loadBuddy();
   // Poll research every 60s
   setInterval(loadResearchSummary, 60000);
-  // Poll agent wallet balance every 30s
-  setInterval(function() {
-    fetch('/api/agent-wallet').then(function(r){return r.json();}).then(function(d){
-      if (d.configured && d.bnbBalanceFormatted != null) {
-        document.getElementById('aw-bal').textContent = d.bnbBalanceFormatted.toFixed(4) + ' BNB';
-      }
-    }).catch(function(){});
-  }, 30000);
+  // Poll agent overview every 30s
+  setInterval(refreshAgentOverview, 30000);
 };
 </script>
 
