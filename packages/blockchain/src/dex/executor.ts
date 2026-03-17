@@ -282,34 +282,67 @@ export async function executeSwap(
     console.log(`[executeSwap] amountIn=${amountIn}, amountOutMin=${amountOutMin}, path=[${quote.path.join(',')}]`);
     console.log(`[executeSwap] signerAddress=${signerAddress}, deadline=${deadline}`);
 
+    // For BNB→token swaps, no retry (BNB has no transfer tax).
+    // For token→X swaps, retry with decreasing amounts to handle fee-on-transfer tokens.
+    const SWAP_RETRY_BPS = isFromBnbSwap ? [100n] : [100n, 95n, 90n];
+    const TRANSFER_TOPIC = keccak256('Transfer(address,address,uint256)');
+
     let swapTx;
-    if (isFromBnbSwap) {
-      const path = quote.path[0].toLowerCase() === WBNB_ADDRESS.toLowerCase()
-        ? quote.path
-        : [WBNB_ADDRESS, ...quote.path.slice(1)];
-      swapTx = await router.swapExactETHForTokens(
-        amountOutMin,
-        path,
-        signerAddress,
-        deadline,
-        { value: amountIn },
-      );
-    } else if (isToBnb) {
-      swapTx = await router.swapExactTokensForETH(
-        amountIn,
-        amountOutMin,
-        quote.path,
-        signerAddress,
-        deadline,
-      );
-    } else {
-      swapTx = await router.swapExactTokensForTokens(
-        amountIn,
-        amountOutMin,
-        quote.path,
-        signerAddress,
-        deadline,
-      );
+    let effectiveAmountIn = amountIn;
+    let lastSwapErr = 'Swap failed at all retry levels';
+
+    for (const bps of SWAP_RETRY_BPS) {
+      const tryAmountIn = (amountIn * bps) / 100n;
+      // Scale amountOutMin proportionally (already includes slippage buffer)
+      const tryAmountOutMin = (amountOutMin * bps) / 100n;
+      console.log(`[executeSwap] Trying bps=${bps}, amountIn=${tryAmountIn}, amountOutMin=${tryAmountOutMin}`);
+
+      try {
+        if (isFromBnbSwap) {
+          const path = quote.path[0].toLowerCase() === WBNB_ADDRESS.toLowerCase()
+            ? quote.path
+            : [WBNB_ADDRESS, ...quote.path.slice(1)];
+          swapTx = await router.swapExactETHForTokens(
+            tryAmountOutMin,
+            path,
+            signerAddress,
+            deadline,
+            { value: tryAmountIn },
+          );
+        } else if (isToBnb) {
+          swapTx = await router.swapExactTokensForETH(
+            tryAmountIn,
+            tryAmountOutMin,
+            quote.path,
+            signerAddress,
+            deadline,
+          );
+        } else {
+          swapTx = await router.swapExactTokensForTokens(
+            tryAmountIn,
+            tryAmountOutMin,
+            quote.path,
+            signerAddress,
+            deadline,
+          );
+        }
+        effectiveAmountIn = tryAmountIn;
+        break; // tx submitted — exit retry loop
+      } catch (swapErr: unknown) {
+        const msg = swapErr instanceof Error ? swapErr.message : String(swapErr);
+        console.warn(`[executeSwap] bps=${bps} failed: ${msg.slice(0, 120)}`);
+        lastSwapErr = msg.slice(0, 200);
+        swapTx = undefined;
+      }
+    }
+
+    if (!swapTx) {
+      return {
+        success: false,
+        amountIn: quote.amountIn,
+        amountOut: '0',
+        error: lastSwapErr,
+      };
     }
 
     const receipt = await swapTx.wait();
@@ -317,7 +350,7 @@ export async function executeSwap(
     if (!receipt || receipt.status !== 1) {
       return {
         success: false,
-        amountIn: quote.amountIn,
+        amountIn: effectiveAmountIn.toString(),
         amountOut: '0',
         txHash: swapTx.hash,
         error: 'Transaction reverted on-chain',
@@ -327,7 +360,6 @@ export async function executeSwap(
     // Parse actual output from the last Transfer event in the receipt.
     // The final Transfer is the output token arriving at the recipient.
     // Fallback to quote.amountOut if parsing fails.
-    const TRANSFER_TOPIC = keccak256('Transfer(address,address,uint256)');
     let amountOut = quote.amountOut;
     for (let i = receipt.logs.length - 1; i >= 0; i--) {
       const log = receipt.logs[i];
@@ -344,7 +376,7 @@ export async function executeSwap(
     return {
       success: true,
       txHash: swapTx.hash,
-      amountIn: quote.amountIn,
+      amountIn: effectiveAmountIn.toString(),
       amountOut,
       gasUsed: receipt.gasUsed.toString(),
     };

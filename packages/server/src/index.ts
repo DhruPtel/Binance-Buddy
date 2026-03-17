@@ -708,10 +708,63 @@ app.post('/api/send-tokens', async (req, res) => {
         'function decimals() external view returns (uint8)',
       ], signer);
       const decimals = await erc20.decimals();
-      const tokenAmount = ethers.parseUnits(amount, decimals);
-      const tx = await erc20.transfer(recipient, tokenAmount);
-      const receipt = await tx.wait();
-      res.json({ success: true, txHash: tx.hash, gasUsed: receipt?.gasUsed.toString() });
+      const fullAmount = ethers.parseUnits(amount, Number(decimals));
+
+      // Retry with decreasing amounts for fee-on-transfer / transfer-restriction tokens.
+      // Ratios as basis points (10000 = 100%).
+      const RETRY_BPS = [10000n, 9900n, 9500n, 9000n, 8000n];
+      const TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
+      let txHash: string | null = null;
+      let gasUsedStr: string | null = null;
+      let actualAmountSent: bigint | null = null;
+      let lastErr = 'Transfer failed at all retry levels';
+
+      for (const bps of RETRY_BPS) {
+        const tryAmount = (fullAmount * bps) / 10000n;
+        try {
+          const tx = await erc20.transfer(recipient, tryAmount);
+          const receipt = await tx.wait();
+          if (!receipt || receipt.status !== 1) { lastErr = 'Transaction reverted'; continue; }
+
+          // Parse actual received amount from Transfer event (fee-on-transfer detection)
+          actualAmountSent = tryAmount;
+          for (let i = receipt.logs.length - 1; i >= 0; i--) {
+            const log = receipt.logs[i];
+            if (log.topics[0] === TRANSFER_TOPIC && log.topics.length >= 3) {
+              const toAddr = '0x' + log.topics[2].slice(26);
+              if (toAddr.toLowerCase() === recipient.toLowerCase()) {
+                actualAmountSent = BigInt(log.data);
+                break;
+              }
+            }
+          }
+          txHash = tx.hash;
+          gasUsedStr = receipt.gasUsed.toString();
+          if (bps < 10000n) console.log(`[send-tokens] tax-token retry succeeded at ${bps / 100n}%`);
+          break;
+        } catch (e: unknown) {
+          lastErr = e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200);
+          console.warn(`[send-tokens] attempt at ${bps / 100n}% failed:`, lastErr.slice(0, 80));
+        }
+      }
+
+      if (txHash === null || actualAmountSent === null) {
+        res.status(500).json({ error: lastErr });
+        return;
+      }
+
+      const amountSentHuman = parseFloat(ethers.formatUnits(actualAmountSent, Number(decimals)));
+      const taxPercent = parsedAmount > 0
+        ? Math.max(0, parseFloat(((parsedAmount - amountSentHuman) / parsedAmount * 100).toFixed(1)))
+        : 0;
+      res.json({
+        success: true,
+        txHash,
+        gasUsed: gasUsedStr,
+        amountSent: amountSentHuman,
+        amountRequested: parsedAmount,
+        taxPercent: taxPercent >= 0.5 ? taxPercent : 0,
+      });
     }
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -1973,8 +2026,15 @@ function confirmXfer(i) {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.success) {
-        statusEl.innerHTML = '<span style="color:var(--green)">Sent! <a href="https://bscscan.com/tx/' + d.txHash + '" target="_blank" style="color:var(--green);font-size:10px">TX\u2197</a></span>';
-        log('INFO', 'Transferred ' + amount + ' ' + t.symbol + ' to ' + recipient.slice(0,6) + '...');
+        var sentStr = d.amountSent != null ? formatNum(d.amountSent) : amount;
+        var msg = 'Transferred ' + sentStr + ' ' + escapeHtml(t.symbol);
+        if (d.taxPercent && d.taxPercent > 0) {
+          var retained = (d.amountRequested - d.amountSent).toFixed(4);
+          msg += '<div class="text-sec" style="font-size:11px">token has ~' + d.taxPercent + '% transfer tax &mdash; ' + retained + ' ' + escapeHtml(t.symbol) + ' retained by contract</div>';
+        }
+        msg += ' <a href="https://bscscan.com/tx/' + d.txHash + '" target="_blank" style="color:var(--green);font-size:10px">TX\u2197</a>';
+        statusEl.innerHTML = '<span style="color:var(--green)">' + msg + '</span>';
+        log('INFO', 'Transferred ' + sentStr + ' ' + t.symbol + ' to ' + recipient.slice(0,6) + (d.taxPercent ? ' (' + d.taxPercent + '% tax)' : ''));
         setTimeout(function() { refreshAgentOverview(); renderTransferList(); }, 3000);
       } else {
         statusEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
@@ -2018,8 +2078,13 @@ function sendAllTokens() {
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.success) {
-          sEl.innerHTML = escapeHtml(t.symbol) + ': <span style="color:var(--green)">\u2713 sent <a href="https://bscscan.com/tx/' + d.txHash + '" target="_blank" style="color:var(--green);font-size:10px">TX\u2197</a></span>';
-          log('INFO', 'Send All: transferred ' + t.symbol + ' to ' + recipient.slice(0,6) + '...');
+          var sentStr = d.amountSent != null ? formatNum(d.amountSent) : t.balance_formatted;
+          var taxNote = '';
+          if (d.taxPercent && d.taxPercent > 0) {
+            taxNote = ' <span class="text-sec" style="font-size:10px">(~' + d.taxPercent + '% tax)</span>';
+          }
+          sEl.innerHTML = escapeHtml(t.symbol) + ': <span style="color:var(--green)">\u2713 ' + escapeHtml(String(sentStr)) + taxNote + ' <a href="https://bscscan.com/tx/' + d.txHash + '" target="_blank" style="color:var(--green);font-size:10px">TX\u2197</a></span>';
+          log('INFO', 'Send All: transferred ' + sentStr + ' ' + t.symbol + ' to ' + recipient.slice(0,6) + '...');
         } else {
           sEl.innerHTML = escapeHtml(t.symbol) + ': <span style="color:var(--red)">' + escapeHtml(d.error || 'failed') + '</span>';
         }
