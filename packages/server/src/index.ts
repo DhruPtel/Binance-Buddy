@@ -1402,24 +1402,27 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Row 2b: Manual Swap | Manual Transfer -->
+  <!-- Row 2b: Quick Swap | Manual Transfer -->
   <div class="grid-2">
     <div class="card">
-      <h2>Manual Swap (Raw Addresses)</h2>
-      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
-        <input type="text" id="raw-swap-in" placeholder="Token In Address (0x...)" style="font-size:12px" />
-        <input type="text" id="raw-swap-out" placeholder="Token Out Address (0x... or BNB)" style="font-size:12px" />
-        <input type="number" id="raw-swap-amount" placeholder="Amount" step="0.001" min="0" style="font-size:12px" />
+      <h2>Quick Swap</h2>
+      <div class="input-row" style="margin-bottom:10px">
+        <input type="number" id="qs-amount" placeholder="Amount" step="0.001" min="0" style="flex:1;font-size:12px" />
       </div>
-      <button class="btn btn-sm" onclick="manualSwap()">Swap</button>
-      <div id="raw-swap-result" class="text-sm" style="margin-top:8px"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        <button class="btn btn-sec btn-sm" onclick="quickSwap('0x55d398326f99059fF775485246999027B3197955','BNB')">Sell USDT → BNB</button>
+        <button class="btn btn-sec btn-sm" onclick="quickSwap('0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82','BNB')">Sell CAKE → BNB</button>
+        <button class="btn btn-sec btn-sm" onclick="quickSwap('BNB','0x55d398326f99059fF775485246999027B3197955')">Buy USDT</button>
+        <button class="btn btn-sec btn-sm" onclick="quickSwap('BNB','0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82')">Buy CAKE</button>
+      </div>
+      <div id="qs-result" class="text-sm"></div>
     </div>
     <div class="card">
-      <h2>Manual Transfer (Raw Addresses)</h2>
+      <h2>Manual Transfer</h2>
       <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
-        <input type="text" id="raw-xfer-token" placeholder="Token Address (0x... or BNB)" style="font-size:12px" />
+        <input type="text" id="raw-xfer-token" placeholder="Token address (0x...) or BNB" style="font-size:12px" />
         <input type="number" id="raw-xfer-amount" placeholder="Amount" step="0.001" min="0" style="font-size:12px" />
-        <input type="text" id="raw-xfer-to" placeholder="Recipient Address (0x...)" style="font-size:12px" />
+        <input type="text" id="raw-xfer-to" placeholder="Recipient address (0x...)" style="font-size:12px" />
       </div>
       <button class="btn btn-sm" onclick="manualTransfer()">Transfer</button>
       <div id="raw-xfer-result" class="text-sm" style="margin-top:8px"></div>
@@ -2761,14 +2764,14 @@ function prefillTrade(token) {
 // =============================================================================
 // Manual Swap / Transfer (raw addresses, no symbol resolution)
 // =============================================================================
-function manualSwap() {
-  var tokenIn = document.getElementById('raw-swap-in').value.trim();
-  var tokenOut = document.getElementById('raw-swap-out').value.trim();
-  var amount = document.getElementById('raw-swap-amount').value.trim();
-  var el = document.getElementById('raw-swap-result');
-  if (!tokenIn || !tokenOut || !amount) { el.innerHTML = '<span style="color:var(--red)">Fill in all fields</span>'; return; }
-  el.innerHTML = '<span class="text-sec"><span class="spinner"></span> Swapping...</span>';
-  log('TRADE', 'Manual swap: ' + amount + ' ' + tokenIn.slice(0,10) + ' → ' + tokenOut.slice(0,10));
+function quickSwap(tokenIn, tokenOut) {
+  var amount = document.getElementById('qs-amount').value.trim();
+  var el = document.getElementById('qs-result');
+  if (!amount || parseFloat(amount) <= 0) { el.innerHTML = '<span style="color:var(--red)">Enter an amount first</span>'; return; }
+  var inLabel = tokenIn.startsWith('0x') ? tokenIn.slice(0,8) + '...' : tokenIn;
+  var outLabel = tokenOut.startsWith('0x') ? tokenOut.slice(0,8) + '...' : tokenOut;
+  el.innerHTML = '<span class="text-sec"><span class="spinner"></span> ' + escapeHtml(inLabel) + ' → ' + escapeHtml(outLabel) + '...</span>';
+  log('TRADE', 'Quick swap: ' + amount + ' ' + inLabel + ' → ' + outLabel);
   fetch('/api/swap/execute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2778,8 +2781,9 @@ function manualSwap() {
   .then(function(d) {
     if (d.success) {
       var link = 'https://bscscan.com/tx/' + d.txHash;
-      el.innerHTML = '<span style="color:var(--green)">Success!</span> <a href="' + link + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,14) + '...</a>';
-      log('TRADE', 'Manual swap success: ' + d.txHash.slice(0,14));
+      el.innerHTML = '<span style="color:var(--green)">Success!</span> <a href="' + link + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,14) + '...</a>' +
+        '<div class="text-sec" style="margin-top:4px">Out: ~' + formatNum(parseFloat(d.amountOut) / 1e18) + '</div>';
+      log('TRADE', 'Quick swap success: ' + d.txHash.slice(0,14));
       refreshAgentOverview();
     } else {
       el.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
