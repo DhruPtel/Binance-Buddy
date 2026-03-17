@@ -2724,17 +2724,30 @@ function autonomousCycle() {
   console.log('[autonomous] cycle firing');
   autoLog('Scanning farms...');
   scanFarms(function(farms) {
-    if (farms.length > 0) {
-      var f = farms[0];
-      var label = (f.poolName || 'Unknown') + ' ' + f.apy.toFixed(1) + '% APY';
-      autoLog('Scanned farms — top: ' + label);
-      autoLog('Executing: Enter farm ' + (f.poolName || '') + ' on ' + (f.protocol || ''));
-      console.log('[autonomous] executing top farm: ' + label);
-      executeFromResearch('Enter farm', f.poolName || f.tokens.join('/'), f.protocol, 'farming');
-    } else {
+    if (farms.length === 0) {
       autoLog('Scanned farms — no opportunities found');
       console.log('[autonomous] no farms found');
+      return;
     }
+    // Prefer lending/yield over LP — skip anything that would need add_liquidity
+    var preferred = farms.filter(function(f) {
+      var name = ((f.poolName || '') + ' ' + (f.protocol || '')).toLowerCase();
+      var isLp = name.indexOf('lp') >= 0 || name.indexOf('liquidity') >= 0 ||
+                 name.indexOf('-') >= 0 && f.tokens && f.tokens.length > 1;
+      return !isLp;
+    });
+    var f = preferred.length > 0 ? preferred[0] : null;
+    if (!f) {
+      autoLog('Scanned farms — ' + farms.length + ' results but all are LP (skipped)');
+      console.log('[autonomous] all results are LP, skipping');
+      return;
+    }
+    var label = (f.poolName || 'Unknown') + ' ' + f.apy.toFixed(1) + '% APY';
+    autoLog('Scanned — top: ' + label);
+    var action = f.protocol && f.protocol.toLowerCase().indexOf('venus') >= 0 ? 'Supply' : 'Deposit';
+    autoLog('Executing: ' + action + ' ' + (f.poolName || '') + ' on ' + (f.protocol || ''));
+    console.log('[autonomous] executing: ' + action + ' ' + label);
+    executeFromResearch(action, f.poolName || f.tokens.join('/'), f.protocol, 'farming');
   });
 }
 
