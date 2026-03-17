@@ -3176,29 +3176,34 @@ function hasTxHash(text) {
 // ---------------------------------------------------------------------------
 var AUTO_TRADE_BNB = '0.002'; // ~$1 per step, safe for testing
 
+// Safe hardcoded steps used to pad when the farm scan doesn't yield 3 non-LP farms
+var AUTO_FALLBACK_STEPS = [
+  'Swap ' + '0.002' + ' BNB for USDT.',
+  'Supply 0.002 BNB to Venus BNB Lending.',
+  'Swap ' + '0.002' + ' BNB for CAKE.',
+];
+
 function buildAutoSteps(farms) {
   var steps = [];
   for (var i = 0; i < farms.length && steps.length < 3; i++) {
     var f = farms[i];
-    // Skip LP farms (two-token pools with impermanent loss)
-    if (f.poolName.indexOf('LP') !== -1 || f.tokens.length >= 2) continue;
-    var token = f.tokens[0];
-    var protocol = f.protocol;
-    var poolName = f.poolName;
+    // Skip LP farms (two-token pools with impermanent loss risk)
+    if (f.poolName.indexOf('LP') !== -1 || (f.tokens && f.tokens.length >= 2)) continue;
+    var token = f.tokens && f.tokens[0];
     var isBnb = token === 'BNB';
     if (isBnb) {
-      // e.g. "Supply 0.002 BNB to Venus BNB Lending"
-      steps.push('Supply ' + AUTO_TRADE_BNB + ' BNB to ' + protocol + ' ' + poolName + '.');
-    } else {
-      // e.g. "Swap 0.002 BNB for USDT then supply to Venus USDT Lending"
-      steps.push('Swap ' + AUTO_TRADE_BNB + ' BNB for ' + token + ' then supply to ' + protocol + ' ' + poolName + '.');
+      steps.push('Supply ' + AUTO_TRADE_BNB + ' BNB to ' + f.protocol + ' ' + f.poolName + '.');
+    } else if (token) {
+      steps.push('Swap ' + AUTO_TRADE_BNB + ' BNB for ' + token + ' then supply to ' + f.protocol + ' ' + f.poolName + '.');
     }
   }
-  // Fallback if all farms were LP
-  if (steps.length === 0) {
-    steps.push('Swap ' + AUTO_TRADE_BNB + ' BNB for USDT.');
-    steps.push('Supply 0.001 BNB to Venus BNB Lending.');
+  // Always pad to exactly 3 steps using safe fallbacks
+  var fi = 0;
+  while (steps.length < 3) {
+    steps.push(AUTO_FALLBACK_STEPS[fi % AUTO_FALLBACK_STEPS.length]);
+    fi++;
   }
+  console.log('[autonomous] buildAutoSteps: ' + steps.length + ' steps from ' + farms.length + ' farms');
   return steps;
 }
 
@@ -3242,8 +3247,9 @@ function runAutonomous() {
 }
 
 function executeStep(steps, index, done) {
+  console.log('[executeStep] index=' + index + ' total=' + steps.length + ' shouldStop=' + _autoShouldStop);
   if (_autoShouldStop) { finishAutonomous('Stopped'); return; }
-  if (index >= steps.length) { done(); return; }
+  if (index >= steps.length) { console.log('[executeStep] all steps done, calling done()'); done(); return; }
 
   var stepNum = index + 1;
   var stepText = steps[index];
@@ -3251,6 +3257,7 @@ function executeStep(steps, index, done) {
   log('INFO', 'Autonomous step ' + stepNum + ': ' + stepText.slice(0, 60));
 
   autoChat(stepText, function(reply, err, data) {
+    console.log('[executeStep] callback for index=' + index + ' err=' + !!err + ' cbTripped=' + !!(data && data.circuitBreakerTripped));
     if (_autoShouldStop) { finishAutonomous('Stopped'); return; }
 
     if (data && data.circuitBreakerTripped) {
@@ -3273,7 +3280,8 @@ function executeStep(steps, index, done) {
       }
     }
 
-    // Pause between steps, then continue
+    // Queue next step
+    console.log('[executeStep] queuing next step index=' + (index + 1) + ' in 5s');
     setTimeout(function() {
       executeStep(steps, index + 1, done);
     }, 5000);
