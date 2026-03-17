@@ -154,7 +154,7 @@ export const GUARDRAIL_CONFIGS: Record<TradeMode, GuardrailConfig> = {
 };
 
 // Convenience aliases
-export const BNB_FEE_RESERVE = 0.005;
+export const BNB_FEE_RESERVE = 0.0005;
 export const MAX_SLIPPAGE_NORMAL_BPS = 100;
 export const MAX_SLIPPAGE_TRENCHES_BPS = 1500;
 export const CIRCUIT_BREAKER_THRESHOLD = 3;
