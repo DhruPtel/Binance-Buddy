@@ -25,8 +25,9 @@ import {
   executeLendingSupply,
   getAccountLiquidity,
   executeLPEntry,
+  executeApproval,
 } from '@binancebuddy/blockchain';
-import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS, resolveToken } from '@binancebuddy/core';
+import { safeStringify, MULTICALL3_ADDRESS, NATIVE_BNB_ADDRESS, WBNB_ADDRESS, SAFE_TOKENS, GUARDRAIL_CONFIGS, PANCAKESWAP_V2_ROUTER, resolveToken } from '@binancebuddy/core';
 import type { BuddyState, AgentContext, SwapParams, XPSource } from '@binancebuddy/core';
 import {
   startResearchLoop,
@@ -667,6 +668,45 @@ app.post('/api/send-tokens', async (req, res) => {
       const receipt = await tx.wait();
       res.json({ success: true, txHash: tx.hash, gasUsed: receipt?.gasUsed.toString() });
     }
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Reset Approval (fix stale allowances)
+// ---------------------------------------------------------------------------
+
+app.post('/api/reset-approval', async (req, res) => {
+  if (!agentWallet) {
+    res.status(503).json({ error: 'Agent wallet not configured.' });
+    return;
+  }
+
+  const { token } = req.body as { token?: string };
+  if (!token) {
+    res.status(400).json({ error: 'token is required' });
+    return;
+  }
+
+  const tokenAddr = resolveToken(token);
+  if (!tokenAddr) {
+    res.status(400).json({ error: `Unknown token: ${token}` });
+    return;
+  }
+
+  try {
+    const signer = agentWallet.connect(provider);
+    // Reset to 0 first, then approve MaxUint256
+    console.log(`[reset-approval] Revoking approval for ${token} (${tokenAddr})...`);
+    const revokeTx = await executeApproval(signer, tokenAddr, PANCAKESWAP_V2_ROUTER, 0n);
+    console.log(`[reset-approval] Revoke tx: ${revokeTx}`);
+
+    console.log(`[reset-approval] Granting max approval for ${token}...`);
+    const approveTx = await executeApproval(signer, tokenAddr, PANCAKESWAP_V2_ROUTER);
+    console.log(`[reset-approval] Approve tx: ${approveTx}`);
+
+    res.json({ success: true, revokeTxHash: revokeTx, approveTxHash: approveTx });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -1329,11 +1369,16 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
 
     <!-- Trade -->
     <div class="card" id="trade-card">
-      <h2>Trade (Agent Wallet)</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h2 style="margin:0">Trade (Agent Wallet)</h2>
+        <button class="btn btn-sec btn-sm" onclick="loadTradeTokens()">Load Tokens</button>
+      </div>
       <div class="trade-inputs">
         <div>
           <div class="text-sec text-sm" style="margin-bottom:4px">From</div>
-          <input type="text" id="trade-from" value="BNB" placeholder="BNB or 0x..." />
+          <select id="trade-from" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-sm);padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:13px;width:100%">
+            <option value="BNB">BNB</option>
+          </select>
         </div>
         <div class="trade-arrow">→</div>
         <div>
@@ -1342,8 +1387,12 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
         </div>
       </div>
       <div class="input-row">
-        <input type="number" id="trade-amount" placeholder="Amount (BNB)" step="0.001" min="0" style="flex:1" />
+        <input type="number" id="trade-amount" placeholder="Amount" step="0.001" min="0" style="flex:1" />
         <button class="btn" onclick="tradeSwap()">Swap</button>
+      </div>
+      <div style="margin-bottom:8px">
+        <button class="btn btn-sec btn-sm" onclick="resetApproval()">Reset Approval</button>
+        <span id="approval-result" class="text-sm" style="margin-left:8px"></span>
       </div>
       <div id="trade-error" class="text-sm" style="color:var(--red);margin-bottom:8px;display:none"></div>
       <div class="tx-result" id="tx-result"></div>
@@ -2556,10 +2605,42 @@ function resetCB() {
 }
 
 // =============================================================================
-// Trade — single-step execute via /api/swap/execute
+// Trade — single-step execute via /api/swap/execute (no agent/LLM)
 // =============================================================================
+function loadTradeTokens() {
+  var sel = document.getElementById('trade-from');
+  sel.innerHTML = '<option value="BNB">BNB (loading...)</option>';
+  fetch('/api/agent-wallet')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.configured || !d.address) { sel.innerHTML = '<option value="BNB">BNB</option>'; return; }
+      var bnbBal = (d.bnbBalanceFormatted || 0).toFixed(4);
+      sel.innerHTML = '<option value="BNB">BNB (' + bnbBal + ')</option>';
+      // Fetch token holdings
+      return fetch('/api/scan/' + d.address, { method: 'POST' }).then(function(r2) { return r2.json(); });
+    })
+    .then(function(scan) {
+      if (!scan || !scan.walletState) return;
+      var tokens = scan.walletState.tokens || [];
+      for (var i = 0; i < tokens.length; i++) {
+        var t = tokens[i];
+        if (t.balanceFormatted > 0) {
+          var opt = document.createElement('option');
+          opt.value = t.symbol;
+          opt.textContent = t.symbol + ' (' + formatNum(t.balanceFormatted) + ')';
+          sel.appendChild(opt);
+        }
+      }
+      log('TRADE', 'Loaded ' + tokens.length + ' tokens into trade panel');
+    })
+    .catch(function(e) {
+      sel.innerHTML = '<option value="BNB">BNB</option>';
+      log('ERROR', 'Load tokens: ' + e.message);
+    });
+}
+
 function tradeSwap() {
-  var tokenIn = document.getElementById('trade-from').value.trim() || 'BNB';
+  var tokenIn = document.getElementById('trade-from').value || 'BNB';
   var tokenOut = document.getElementById('trade-to').value.trim();
   var amountStr = document.getElementById('trade-amount').value.trim();
   var errEl = document.getElementById('trade-error');
@@ -2569,7 +2650,7 @@ function tradeSwap() {
   if (!tokenOut || !amountStr) { errEl.textContent = 'Fill in all fields'; errEl.style.display = 'block'; return; }
   var amount = parseFloat(amountStr);
   if (isNaN(amount) || amount <= 0) { errEl.textContent = 'Invalid amount'; errEl.style.display = 'block'; return; }
-  var slippage = _mode === 'trenches' ? 1500 : 100;
+  var slippage = 100;
 
   resEl.innerHTML = '<span class="spinner"></span> Executing ' + amount + ' ' + escapeHtml(tokenIn) + ' → ' + escapeHtml(tokenOut) + '...';
   resEl.style.display = 'block';
@@ -2598,6 +2679,7 @@ function tradeSwap() {
       buddyTriggerSpin();
       if (d.buddyState) updateBuddyPanel(d.buddyState);
       loadHeader();
+      refreshAgentOverview();
     } else {
       resEl.innerHTML = '<div style="color:var(--red);font-weight:600">Swap Failed</div>' +
         '<div class="text-sm text-sec" style="margin-top:4px">' + escapeHtml(d.error || 'Unknown error') + '</div>';
@@ -2610,8 +2692,32 @@ function tradeSwap() {
   });
 }
 
+function resetApproval() {
+  var token = document.getElementById('trade-from').value || 'BNB';
+  var resultEl = document.getElementById('approval-result');
+  if (token === 'BNB') { resultEl.innerHTML = '<span style="color:var(--orange)">BNB is native — no approval needed</span>'; return; }
+  resultEl.innerHTML = '<span class="text-sec"><span class="spinner"></span> Resetting...</span>';
+  log('TRADE', 'Resetting approval for ' + token);
+  fetch('/api/reset-approval', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.success) {
+      resultEl.innerHTML = '<span style="color:var(--green)">Approval reset for ' + escapeHtml(token) + '</span>';
+      log('TRADE', 'Approval reset: revoke=' + d.revokeTxHash.slice(0,10) + '... approve=' + d.approveTxHash.slice(0,10) + '...');
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
+    }
+  })
+  .catch(function(e) {
+    resultEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(e.message) + '</span>';
+  });
+}
+
 function prefillTrade(token) {
-  document.getElementById('trade-from').value = 'BNB';
   document.getElementById('trade-to').value = token;
   document.getElementById('tx-result').style.display = 'none';
   document.getElementById('trade-error').style.display = 'none';
@@ -2622,7 +2728,7 @@ function prefillTrade(token) {
   } else {
     amountEl.focus();
   }
-  log('TRADE', 'Pre-filled from research: BNB → ' + token);
+  log('TRADE', 'Pre-filled from research: → ' + token);
 }
 
 // =============================================================================
