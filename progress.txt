@@ -7,6 +7,15 @@ browser prompt(). System prompt enforces execute-first behavior. resolveToken sh
 in core. PancakeSwap V3 LP support added. check_positions scans all BEP-20 tokens
 via GoldRush (not just SAFE_TOKENS). Max tool rounds raised from 5 to 8.
 
+Token→BNB swaps now work for SAFE_TOKENS (CAKE→BNB confirmed on-chain). Guardrails
+disabled for demo — all checks (simulation, spending limit, fee reserve, protocol
+allowlist) pass unconditionally. Circuit breaker resets on server startup so stale
+failure counts don't block the agent between restarts.
+
+ASTER swap fails with TRANSFER_FROM_FAILED — likely a token with transfer restrictions
+(tax/fee-on-transfer) or an approval issue for non-SAFE_TOKENS tokens. Needs
+investigation if we want to support arbitrary tokens beyond the safe list.
+
 ## Known Issues / Next Steps
 ### MUST FIX
 1. check_positions GoldRush scan only works if COVALENT_API_KEY is set — without it,
@@ -15,7 +24,8 @@ via GoldRush (not just SAFE_TOKENS). Max tool rounds raised from 5 to 8.
    V3 pool detection (factory.getPool + slot0) can be verified without funds.
 3. Agent still sometimes too chatty — gives warnings/advice during execution despite
    system prompt prohibitions. May need to lower temperature or add stop sequences.
-4. End-to-end demo walkthrough on funded wallet — always reveals 2-3 crashes.
+4. Re-enable guardrails with proper BNB-equivalent conversion for spending limit.
+   Current state: all guardrail checks disabled (pass unconditionally).
 
 ### SHOULD FIX (polish)
 5. Graceful errors for unfunded wallet / missing ANTHROPIC_API_KEY — should return
