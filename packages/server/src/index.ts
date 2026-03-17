@@ -1248,13 +1248,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   </div>
 </div>
 
-<!-- Controls bar (minimal) -->
-<div class="controls-bar">
-  <div class="mode-toggle">
-    <button id="btn-normal" class="mode-btn normal active" onclick="setMode('normal')">● Normal</button>
-    <button id="btn-trenches" class="mode-btn trenches" onclick="setMode('trenches')">⚡ Trenches</button>
-  </div>
-</div>
 
 <!-- Main content -->
 <div class="main">
@@ -1323,7 +1316,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
       <div class="text-sec text-sm" style="text-align:center;margin-bottom:8px" id="buddy-xp-label">0 / 100 XP</div>
       <div class="buddy-stat-row"><span class="text-sec">Mood</span><span id="buddy-mood">😐 Neutral</span></div>
       <div class="buddy-stat-row"><span class="text-sec">Trades</span><span id="buddy-trades">0</span></div>
-      <div class="buddy-stat-row"><span class="text-sec">Trenches</span><span id="buddy-trenches" class="badge badge-red">🔒 Locked</span></div>
     </div>
   </div>
 
@@ -1455,40 +1447,26 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Row 4: Trenches | Wallet Scanner -->
+  <!-- Row 4: Autonomous Mode -->
   <div class="grid-2">
 
-    <!-- Trenches -->
-    <div class="card" id="trenches-card">
+    <!-- Autonomous Mode -->
+    <div class="card" id="autonomous-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <h2 style="margin:0">Trenches</h2>
-        <span id="trenches-lock-badge" class="badge badge-red">🔒 Locked (need 500 XP)</span>
+        <h2 style="margin:0">Autonomous Mode</h2>
+        <span id="auto-status" class="badge badge-red">Inactive</span>
       </div>
-      <div class="section-label">Sniper</div>
-      <div class="sniper-status">
-        <div class="sniper-dot" id="sniper-dot"></div>
-        <span id="sniper-status-label">Inactive</span>
-        <button class="btn btn-sec btn-sm" id="sniper-btn" onclick="activateSniper()" disabled>Activate</button>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn btn-sec btn-sm" onclick="scanFarms()" id="farms-btn">Scan Farms</button>
+        <button class="btn btn-sm" id="auto-toggle" onclick="toggleAutonomous()">Activate Autonomous</button>
       </div>
-      <div id="sniper-pairs">
-        <div class="text-sec text-sm">No pairs detected yet.</div>
-      </div>
-      <div class="section-label" style="margin-top:12px">Farm Scanner</div>
-      <button class="btn btn-sec btn-sm" onclick="scanFarms()" id="farms-btn">Scan Farms</button>
-      <div id="farms-results" style="margin-top:8px">
+      <div id="farms-results">
         <div class="text-sec text-sm">Click Scan Farms to load opportunities.</div>
       </div>
     </div>
 
-    <!-- Wallet Scanner -->
-    <div class="card">
-      <h2>Wallet Scanner</h2>
-      <div class="input-row">
-        <input type="text" id="scan-input" placeholder="BSC address (0x...)" />
-        <button class="btn" onclick="scanWallet()" id="scan-btn">Scan</button>
-      </div>
-      <div id="scan-result"></div>
-    </div>
+    <!-- (empty second column) -->
+    <div></div>
   </div>
 
   <!-- Activity Log -->
@@ -1520,7 +1498,7 @@ var _mode = 'normal';
 var _chatHistory = [];
 var _buddyXp = 0;
 var _buddyStage3D = '';
-var _sniperActive = false;
+var _autoInterval = null;
 var _agentWalletAddr = null;
 
 // =============================================================================
@@ -1656,17 +1634,15 @@ function loadCbStatus() {
 }
 
 // =============================================================================
-// Mode Toggle
+// Mode
 // =============================================================================
 function setMode(m) {
   _mode = m;
-  document.getElementById('btn-normal').className = 'mode-btn normal' + (m === 'normal' ? ' active' : '');
-  document.getElementById('btn-trenches').className = 'mode-btn trenches' + (m === 'trenches' ? ' active' : '');
-  document.getElementById('chat-mode-badge').textContent = m === 'trenches' ? 'Trenches Mode' : 'Normal Mode';
-  document.getElementById('chat-mode-badge').className = m === 'trenches' ? 'badge badge-orange' : 'badge badge-green';
-  var tc = document.getElementById('trenches-card');
-  if (tc) tc.className = 'card' + (m === 'trenches' ? ' trenches-active' : '');
-  log(m === 'trenches' ? 'TRENCHES' : 'INFO', 'Mode set to ' + m);
+  var badge = document.getElementById('chat-mode-badge');
+  if (badge) {
+    badge.textContent = 'Normal Mode';
+    badge.className = 'badge badge-green';
+  }
 }
 
 // =============================================================================
@@ -1866,7 +1842,6 @@ function loadResearchSummary() {
             '</div><div class="text-sec text-sm">Updated: ' + relativeTime(d.timestamp) + ' — Select a tab above to explore protocols</div>';
         }
         document.getElementById('research-age').textContent = relativeTime(d.timestamp);
-        updateSniper(d);
       }
     })
     .catch(function() {});
@@ -1883,7 +1858,6 @@ function runResearchCycle() {
       btn.disabled = false;
       btn.textContent = 'Background ↺';
       _latestReport = d;
-      if (d) updateSniper(d);
       log('RESEARCH', 'Research cycle complete. BNB: $' + (d.marketOverview ? d.marketOverview.bnbPriceUsd.toFixed(2) : '?'));
     })
     .catch(function(e) {
@@ -2502,18 +2476,6 @@ function updateBuddyPanel(buddy) {
   var moodEmoji = { ecstatic: '🤩', happy: '😊', neutral: '😐', worried: '😟', anxious: '😰' };
   document.getElementById('buddy-mood').textContent = (moodEmoji[buddy.mood] || '😐') + ' ' + (buddy.mood || 'neutral');
   document.getElementById('buddy-trades').textContent = buddy.totalTradesExecuted || 0;
-  var trEl = document.getElementById('buddy-trenches');
-  if (buddy.trenchesUnlocked) {
-    trEl.className = 'badge badge-orange';
-    trEl.textContent = '⚡ Unlocked';
-    document.getElementById('sniper-btn').disabled = false;
-    document.getElementById('trenches-lock-badge').className = 'badge badge-orange';
-    document.getElementById('trenches-lock-badge').textContent = '⚡ Trenches Active';
-  } else {
-    trEl.className = 'badge badge-red';
-    trEl.textContent = '🔒 Locked';
-    document.getElementById('trenches-lock-badge').textContent = '🔒 Locked (need 500 XP)';
-  }
 }
 
 function loadBuddy() {
@@ -2689,51 +2651,13 @@ function executeFromResearch(action, token, protocol, category, underlyingAddr) 
 }
 
 // =============================================================================
-// Trenches
+// Autonomous Mode + Farm Scanner
 // =============================================================================
-function updateSniper(report) {
-  var pairs = (report && report.newPairs) || [];
-  var el = document.getElementById('sniper-pairs');
-  if (pairs.length === 0) { el.innerHTML = '<div class="text-sec text-sm">No pairs detected yet.</div>'; return; }
-  var html = '';
-  for (var i = 0; i < Math.min(pairs.length, 5); i++) {
-    var p = pairs[i];
-    var riskCls = p.honeypotRisk === 'low' ? 'badge-green' : p.honeypotRisk === 'medium' ? 'badge-orange' : 'badge-red';
-    html += '<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">' +
-      '<strong>' + escapeHtml(p.token0Symbol) + '/' + escapeHtml(p.token1Symbol) + '</strong>' +
-      ' <span class="badge ' + riskCls + '">' + escapeHtml(p.honeypotRisk) + ' risk</span>' +
-      '<div class="text-sec">Liq: ' + (p.initialLiquidityBnb || 0).toFixed(2) + ' BNB · ' +
-      (p.isLiquidityLocked ? '🔒 Renounced' : '⚠️ Owner held') + '</div>' +
-      '</div>';
-  }
-  el.innerHTML = html;
-}
-
-function activateSniper() {
-  if (_mode !== 'trenches') { setMode('trenches'); }
-  log('TRENCHES', 'Activating sniper via agent...');
-  fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: 'start sniper', walletAddress: _wallet || undefined, mode: 'trenches' })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.reply) chatAppend('buddy', d.reply);
-    _sniperActive = true;
-    document.getElementById('sniper-dot').className = 'sniper-dot active';
-    document.getElementById('sniper-status-label').textContent = 'Active — watching PairCreated';
-    document.getElementById('sniper-btn').textContent = 'Active';
-    document.getElementById('sniper-btn').disabled = true;
-    log('TRENCHES', 'Sniper activated');
-    if (d.buddyState) updateBuddyPanel(d.buddyState);
-  })
-  .catch(function(e) { log('ERROR', 'Sniper activation: ' + e.message); });
-}
-
 function scanFarms() {
   var btn = document.getElementById('farms-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
-  log('TRENCHES', 'Scanning farms...');
+  log('INFO', 'Scanning farms...');
   fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: 'find farms', walletAddress: _wallet || undefined, mode: _mode })
   })
@@ -2759,7 +2683,7 @@ function scanFarms() {
       html = '<div class="text-sec text-sm">' + escapeHtml(d.reply || 'No farms found') + '</div>';
     }
     document.getElementById('farms-results').innerHTML = html;
-    log('TRENCHES', 'Farm scan complete. ' + farms.length + ' opportunities found.');
+    log('INFO', 'Farm scan complete. ' + farms.length + ' opportunities found.');
     if (d.buddyState) updateBuddyPanel(d.buddyState);
   })
   .catch(function(e) {
@@ -2769,57 +2693,34 @@ function scanFarms() {
   });
 }
 
-// =============================================================================
-// Wallet Scanner
-// =============================================================================
-function scanWallet() {
-  var input = document.getElementById('scan-input');
-  var btn = document.getElementById('scan-btn');
-  var address = input.value.trim();
-  if (!address) { input.focus(); return; }
-  btn.disabled = true;
-  document.getElementById('scan-result').innerHTML = '<div class="text-sec text-sm"><span class="spinner"></span>Scanning...</div>';
-  log('INFO', 'Scanning wallet: ' + address.slice(0,6) + '...');
-  fetch('/api/scan/' + address, { method: 'POST' })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      btn.disabled = false;
-      if (d.error) { document.getElementById('scan-result').innerHTML = '<div style="color:var(--red)">' + escapeHtml(d.error) + '</div>'; log('ERROR', 'Scan: ' + d.error); return; }
-      renderScan(d);
-      log('INFO', 'Scan done: $' + (d.walletState.totalValueUsd || 0).toFixed(2) + ' · ' + (d.walletState.tokens || []).length + ' tokens');
-    })
-    .catch(function(e) { btn.disabled = false; document.getElementById('scan-result').innerHTML = '<div style="color:var(--red)">' + escapeHtml(e.message) + '</div>'; log('ERROR', 'Scan: ' + e.message); });
-}
-
-function renderScan(data) {
-  var ws = data.walletState; var p = data.profile;
-  var archEmoji = { newcomer: '🌱', holder: '💎', swapper: '🔄', farmer: '🌾', degen: '🎰', unknown: '❓' };
-  var html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">' +
-    statCard('BNB', (ws.bnbBalanceFormatted||0).toFixed(4)) +
-    statCard('Total', formatUsd(ws.totalValueUsd)) +
-    statCard('Tokens', (ws.tokens||[]).length) +
-    statCard('Archetype', (archEmoji[p.archetype]||'❓') + ' ' + p.archetype) +
-    '</div>';
-  var tokens = (ws.tokens||[]).sort(function(a,b){return b.valueUsd-a.valueUsd;}).slice(0,8);
-  if (tokens.length > 0) {
-    html += '<table class="token-table"><thead><tr><th>Symbol</th><th>Balance</th><th>Price</th><th>Value</th></tr></thead><tbody>';
-    for (var i = 0; i < tokens.length; i++) {
-      var t = tokens[i];
-      html += '<tr><td><strong>' + escapeHtml(t.symbol) + '</strong></td>' +
-              '<td>' + formatNum(t.balanceFormatted) + '</td>' +
-              '<td>$' + formatNum(t.priceUsd) + '</td>' +
-              '<td style="color:' + (t.valueUsd > 0 ? 'var(--green)' : 'var(--text-secondary)') + '">$' + formatNum(t.valueUsd) + '</td></tr>';
-    }
-    html += '</tbody></table>';
+function toggleAutonomous() {
+  var btn = document.getElementById('auto-toggle');
+  var status = document.getElementById('auto-status');
+  if (_autoInterval) {
+    clearInterval(_autoInterval);
+    _autoInterval = null;
+    btn.textContent = 'Activate Autonomous';
+    status.textContent = 'Inactive';
+    status.className = 'badge badge-red';
+    log('INFO', 'Autonomous mode stopped');
+  } else {
+    btn.textContent = 'Stop Autonomous';
+    status.textContent = 'Active — scanning every 5 min';
+    status.className = 'badge badge-green';
+    log('INFO', 'Autonomous mode activated');
+    scanFarms();
+    _autoInterval = setInterval(function() {
+      scanFarms();
+      // Execute first farm if available
+      var farms = (_latestReport && _latestReport.opportunities) || [];
+      if (farms.length > 0) {
+        var f = farms[0];
+        executeFromResearch('Enter farm', f.poolName || f.tokens.join('/'), f.protocol, 'farming');
+      }
+    }, 300000);
   }
-  document.getElementById('scan-result').innerHTML = html;
 }
 
-function statCard(label, value) {
-  return '<div style="background:var(--bg-tertiary);border-radius:var(--radius-sm);padding:8px;text-align:center">' +
-    '<div style="font-size:14px;font-weight:600;font-family:\\'Space Grotesk\\',sans-serif">' + escapeHtml(String(value)) + '</div>' +
-    '<div class="text-sec text-sm">' + escapeHtml(label) + '</div></div>';
-}
 
 // =============================================================================
 // Test Runner
