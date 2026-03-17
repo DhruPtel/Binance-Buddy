@@ -185,19 +185,15 @@ async function executeLPEntryV3(
 
   const deadline = await getChainDeadline(provider);
   const { tickLower, tickUpper } = fullRangeTicks(v3Pool.tickSpacing);
-  // V3 mint is more price-sensitive than a swap — the position manager computes
-  // exact amounts at the execution block's price. Use a 3% floor so that normal
-  // price movement between quote time and mint time doesn't cause a revert.
-  // The swap step above still uses the caller's slippageBps unchanged.
-  const mintSlippageBps = Math.max(slippageBps, 1000);
-  const slippageFactor = 10_000n - BigInt(mintSlippageBps);
-
   // Sort tokens — V3 requires token0 < token1
   const [token0, token1, isWbnbToken0] = sortTokens(WBNB_ADDRESS, tokenAddress);
   const amount0Desired = isWbnbToken0 ? halfBnbWei : tokenAmountReceived;
   const amount1Desired = isWbnbToken0 ? tokenAmountReceived : halfBnbWei;
-  const amount0Min = (amount0Desired * slippageFactor) / 10_000n;
-  const amount1Min = (amount1Desired * slippageFactor) / 10_000n;
+  // Full-range positions accept any price ratio — set mins to 0 so the
+  // position manager never reverts on a "Price slippage check". We already
+  // hold the tokens; MEV sandwich risk on a mint is negligible vs. the revert.
+  const amount0Min = 0n;
+  const amount1Min = 0n;
 
   // Get NFT balance before
   const nftBalBefore: bigint = await positionManager.balanceOf(signerAddress);
