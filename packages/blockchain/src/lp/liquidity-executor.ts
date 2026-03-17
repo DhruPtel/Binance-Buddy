@@ -189,7 +189,7 @@ async function executeLPEntryV3(
   // exact amounts at the execution block's price. Use a 3% floor so that normal
   // price movement between quote time and mint time doesn't cause a revert.
   // The swap step above still uses the caller's slippageBps unchanged.
-  const mintSlippageBps = Math.max(slippageBps, 300);
+  const mintSlippageBps = Math.max(slippageBps, 1000);
   const slippageFactor = 10_000n - BigInt(mintSlippageBps);
 
   // Sort tokens — V3 requires token0 < token1
