@@ -3174,16 +3174,13 @@ function hasTxHash(text) {
 // Build concrete execution steps from farm scan data (client-side, no LLM)
 // Picks top 3 non-LP farms and generates small fixed-amount commands.
 // ---------------------------------------------------------------------------
-var AUTO_TRADE_BNB = '0.002'; // ~$1 per step, safe for testing
-
-// Safe hardcoded steps used to pad when the farm scan doesn't yield 3 non-LP farms
-var AUTO_FALLBACK_STEPS = [
-  'Swap ' + '0.002' + ' BNB for USDT.',
-  'Supply 0.002 BNB to Venus BNB Lending.',
-  'Swap ' + '0.002' + ' BNB for CAKE.',
-];
-
-function buildAutoSteps(farms) {
+// tradeAmt is passed in as a formatted string (e.g. "0.0100") derived from wallet balance
+function buildAutoSteps(farms, tradeAmt) {
+  var fallbacks = [
+    'Swap ' + tradeAmt + ' BNB for USDT.',
+    'Supply ' + tradeAmt + ' BNB to Venus BNB Lending.',
+    'Swap ' + tradeAmt + ' BNB for CAKE.',
+  ];
   var steps = [];
   for (var i = 0; i < farms.length && steps.length < 3; i++) {
     var f = farms[i];
@@ -3192,18 +3189,18 @@ function buildAutoSteps(farms) {
     var token = f.tokens && f.tokens[0];
     var isBnb = token === 'BNB';
     if (isBnb) {
-      steps.push('Supply ' + AUTO_TRADE_BNB + ' BNB to ' + f.protocol + ' ' + f.poolName + '.');
+      steps.push('Supply ' + tradeAmt + ' BNB to ' + f.protocol + ' ' + f.poolName + '.');
     } else if (token) {
-      steps.push('Swap ' + AUTO_TRADE_BNB + ' BNB for ' + token + ' then supply to ' + f.protocol + ' ' + f.poolName + '.');
+      steps.push('Swap ' + tradeAmt + ' BNB for ' + token + ' then supply to ' + f.protocol + ' ' + f.poolName + '.');
     }
   }
   // Always pad to exactly 3 steps using safe fallbacks
   var fi = 0;
   while (steps.length < 3) {
-    steps.push(AUTO_FALLBACK_STEPS[fi % AUTO_FALLBACK_STEPS.length]);
+    steps.push(fallbacks[fi % fallbacks.length]);
     fi++;
   }
-  console.log('[autonomous] buildAutoSteps: ' + steps.length + ' steps from ' + farms.length + ' farms');
+  console.log('[autonomous] buildAutoSteps: tradeAmt=' + tradeAmt + ', ' + steps.length + ' steps from ' + farms.length + ' farms');
   return steps;
 }
 
@@ -3230,18 +3227,37 @@ function runAutonomous() {
   scanFarms(function(farms) {
     if (_autoShouldStop) { finishAutonomous('Stopped'); return; }
 
-    var steps = buildAutoSteps(farms);
-    var preview = steps.map(function(s, i) { return (i + 1) + '. ' + s; }).join(' | ');
-    autoLog('Plan: ' + preview);
-    status.textContent = 'Executing...';
-    status.className = 'badge badge-green';
+    // Fetch agent wallet balance to size trades dynamically
+    fetch('/api/agent-wallet')
+    .then(function(r) { return r.json(); })
+    .then(function(w) {
+      if (_autoShouldStop) { finishAutonomous('Stopped'); return; }
 
-    // Scroll to chat so user can watch execution live
-    var chatCard = document.getElementById('chat-card');
-    if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      var bnb = parseFloat(w.bnbBalanceFormatted || '0');
+      var perTrade = Math.round((bnb * 0.6 / 3) * 10000) / 10000;
+      // Floor to a safe minimum so we don't send dust
+      if (perTrade < 0.0001) perTrade = 0.0001;
+      var tradeAmt = perTrade.toFixed(4);
+      autoLog('Wallet: ' + bnb.toFixed(4) + ' BNB — ' + tradeAmt + ' BNB per trade (60%/3)');
 
-    executeStep(steps, 0, function() {
-      finishAutonomous('Complete');
+      var steps = buildAutoSteps(farms, tradeAmt);
+      var preview = steps.map(function(s, i) { return (i + 1) + '. ' + s; }).join(' | ');
+      autoLog('Plan: ' + preview);
+      status.textContent = 'Executing...';
+      status.className = 'badge badge-green';
+
+      // Scroll to chat so user can watch execution live
+      var chatCard = document.getElementById('chat-card');
+      if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      executeStep(steps, 0, function() {
+        finishAutonomous('Complete');
+      });
+    })
+    .catch(function(e) {
+      autoLog('Wallet fetch failed (' + e.message + ') — using 0.001 BNB per trade');
+      var steps = buildAutoSteps(farms, '0.0010');
+      executeStep(steps, 0, function() { finishAutonomous('Complete'); });
     });
   });
 }
