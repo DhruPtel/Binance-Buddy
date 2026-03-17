@@ -3181,10 +3181,7 @@ function buildAutoSteps(farms, tradeAmt) {
     var tokens = f.tokens || [];
     var nonBnb = tokens.filter(function(t) { return t !== 'BNB'; })[0];
     if (pool.indexOf('LP') !== -1) {
-      // LP minting is unreliable (multi-step, V3 price slippage). Route through
-      // Beefy vault instead — single-step deposit, far more reliable.
-      var lpToken = nonBnb || tokens[0] || 'CAKE';
-      return 'Swap ' + tradeAmt + ' BNB for ' + lpToken + ' then deposit into a Beefy ' + lpToken + ' vault.';
+      return 'Add liquidity to ' + pool + ' on ' + proto + ' using ' + tradeAmt + ' BNB.';
     }
     if (nonBnb) {
       return 'Swap ' + tradeAmt + ' BNB for ' + nonBnb + ' then supply to ' + proto + ' ' + pool + '.';

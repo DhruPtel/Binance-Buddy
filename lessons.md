@@ -556,3 +556,74 @@ The agent reads this at session start and never makes the same mistake twice.
 - A resolve→swap→check→supply flow needs 4+ tool rounds minimum. The default of 5
   was too tight when resolve_contract was added. Raised to 8. Budget tool rounds based
   on the longest expected multi-step flow, not the average case.
+
+---
+
+## Autonomous Mode + Live Execution (Mar 17)
+
+### Execution Lessons
+
+- **BNB_FEE_RESERVE was 0.005 — too high.** BSC gas is ~$0.005 per tx. Reserve should be
+  0.0005 max. The old value blocked most transactions on wallets with small BNB balances.
+
+- **Token→BNB swaps fail with TRANSFER_FROM_FAILED for Binance-Peg tokens.** Root cause
+  never fully identified — approval is correct, addresses correct, allowance MaxUint256.
+  BNB→token swaps always work. Avoid token→BNB for Binance-Peg tokens in autonomous mode.
+
+- **Tax/fee-on-transfer tokens (ASTER etc.) reject standard transfer().** Detect via custom
+  error `0xe450d38c`. For these tokens, retry at 99%→95%→90%→80% of balance — partial
+  transfers succeed. The Transfer event log shows the actual received amount (may be less
+  than sent due to protocol tax).
+
+- **V3 LP "Price slippage check" revert**: caused by amount0Min/amount1Min being computed
+  from a 1% slippage cap. The V3 position manager computes exact ratios at the execution
+  block's price, so any price movement between quote and mint triggers the revert.
+  Fix: set amount0Min = 0n and amount1Min = 0n for full-range positions. We already hold
+  the tokens; MEV sandwich risk on a full-range mint is negligible vs. the revert risk.
+
+- **Spending limit guardrail compared raw token amounts against a BNB threshold.**
+  2 USDT > 1 BNB limit = blocked. Needs proper USD conversion to be useful. Disabled
+  entirely for demo — re-enable with USD-denominated comparison for production.
+
+- **Circuit breaker trips from guardrail failures, not just real errors.** Resets on
+  server restart. Don't let it silently block autonomous mode — log trips explicitly
+  and expose a reset endpoint.
+
+### Agent Lessons
+
+- **The agent passes wrong 0x addresses from its context window.** check_positions returns
+  all tokens with addresses; agent grabs the wrong one. Fix: force symbol-only inputs or
+  validate all addresses against SAFE_TOKENS before use.
+
+- **System prompt contradictions cause agent to ignore one instruction.** "Execute
+  immediately" + "plan without executing" = agent ignores the plan instruction and executes
+  anyway. Don't ask the agent to plan without executing — build steps client-side from
+  farm scan data instead.
+
+- **Agent is chatty despite prompt updates.** Keep iterating on the system prompt. Each
+  observed refusal pattern needs a specific prohibition added: "NEVER say 'I need to stop
+  you'", "NEVER list blockers". Positive instructions ("be concise") are not enough.
+
+### Architecture Lessons
+
+- **Don't ask the LLM to resolve contract addresses.** Use deterministic lookups:
+  SAFE_TOKENS map, DeFiLlama API, Moralis API. Hallucinated or stale addresses cause
+  silent reverts that are hard to debug.
+
+- **Build autonomous execution steps client-side from farm data.** Don't rely on the agent
+  to plan — it's unreliable, slow, and conflicts with the "execute immediately" system
+  prompt. Farm scan → client-side step builder → direct agent execution commands.
+
+- **Moralis API returns full token names** (e.g. "Binance-Peg BSC-USD") while our internal
+  scanner only returned abbreviated symbols. Use Moralis for user-facing token displays;
+  use SAFE_TOKENS addresses for execution paths.
+
+- **Agent wallet needs a failsafe exit path.** Users must never have tokens stuck in the
+  agent wallet. Implement: direct transfer() for standard tokens, partial transfer (99%→80%)
+  for tax tokens, "Send All" UI button that iterates all holdings. This is non-negotiable
+  for any wallet that holds user funds.
+
+- **buildAutoSteps must always produce N steps** (or however many farms the scan returns).
+  If the farm scan returns mostly LP farms and the filter skips all of them, the autonomous
+  cycle runs 1 step and looks broken. Either include all farm types or pad with hardcoded
+  safe fallbacks.
