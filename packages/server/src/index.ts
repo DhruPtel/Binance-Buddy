@@ -1708,12 +1708,14 @@ function refreshAgentOverview() {
         fetch('/api/scan/' + d.address, { method: 'POST' })
           .then(function(r2) { return r2.json(); })
           .then(function(scan) {
-            if (scan.wallet) {
+            console.log('[overview] scan response keys:', scan ? Object.keys(scan) : 'null');
+            if (scan.walletState) {
               var bnbPrice = 0;
-              var totalUsd = scan.wallet.totalValueUsd || 0;
+              var totalUsd = scan.walletState.totalValueUsd || 0;
               // BNB USD = total minus token values
               var tokenValueUsd = 0;
-              var tokens = scan.wallet.tokens || [];
+              var tokens = scan.walletState.tokens || [];
+              console.log('[overview] tokens found:', tokens.length);
               _agentTokens = tokens;
               for (var i = 0; i < tokens.length; i++) tokenValueUsd += tokens[i].valueUsd || 0;
               var bnbUsd = totalUsd - tokenValueUsd;
@@ -2403,14 +2405,14 @@ function initBuddy3D() {
   var wrap = document.getElementById('buddy-canvas-wrap');
   if (!wrap) return;
   var w = wrap.clientWidth || 280;
-  var h = 250;
+  var h = 200;
 
   _b3dScene = new THREE.Scene();
   _b3dScene.background = new THREE.Color(0xF8F9FA);
 
   _b3dCamera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
-  _b3dCamera.position.set(0, 1.4, 2.8);
-  _b3dCamera.lookAt(0, 0.6, 0);
+  _b3dCamera.position.set(0, 1.4, 3.1);
+  _b3dCamera.lookAt(0, 0.5, 0);
 
   _b3dRenderer = new THREE.WebGLRenderer({ antialias: true });
   _b3dRenderer.setPixelRatio(window.devicePixelRatio || 1);
