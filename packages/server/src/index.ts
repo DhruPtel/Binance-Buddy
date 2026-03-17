@@ -318,6 +318,22 @@ app.post('/api/research/run', async (_req, res) => {
   }
 });
 
+app.get('/api/find-farms', (_req, res) => {
+  const BASELINE_FARMS = [
+    { protocol: 'PancakeSwap', poolName: 'CAKE-BNB LP', apy: 28.5, riskScore: 3, riskAdjustedApy: 23.8, impermanentLossRisk: 'medium', isAudited: true, tokens: ['CAKE', 'BNB'] },
+    { protocol: 'PancakeSwap', poolName: 'USDT-BNB LP', apy: 18.2, riskScore: 2, riskAdjustedApy: 16.8, impermanentLossRisk: 'medium', isAudited: true, tokens: ['USDT', 'BNB'] },
+    { protocol: 'Venus',       poolName: 'USDT Lending', apy: 8.4,  riskScore: 2, riskAdjustedApy: 8.0,  impermanentLossRisk: 'low',    isAudited: true, tokens: ['USDT'] },
+    { protocol: 'Venus',       poolName: 'BNB Lending',  apy: 4.8,  riskScore: 2, riskAdjustedApy: 4.5,  impermanentLossRisk: 'low',    isAudited: true, tokens: ['BNB'] },
+    { protocol: 'Alpaca Finance', poolName: 'BNB-BUSD Leveraged Yield', apy: 42.0, riskScore: 7, riskAdjustedApy: 26.0, impermanentLossRisk: 'high', isAudited: true, tokens: ['BNB', 'BUSD'] },
+  ];
+  const report = getLatestReport();
+  const farms = (report?.opportunities && report.opportunities.length > 0)
+    ? report.opportunities
+    : BASELINE_FARMS;
+  const sorted = [...farms].sort((a: any, b: any) => b.riskAdjustedApy - a.riskAdjustedApy);
+  res.json({ farms: sorted.slice(0, 5), dataSource: report ? 'live_research' : 'baseline' });
+});
+
 // ---------------------------------------------------------------------------
 // Phase 2 Research Endpoints
 // ---------------------------------------------------------------------------
@@ -3057,28 +3073,50 @@ function clearAutoLog() {
 }
 
 // ---------------------------------------------------------------------------
-// Farm Scanner (manual button only)
+// Farm Scanner — renders results into #farms-results, never into chat
 // ---------------------------------------------------------------------------
-function scanFarms() {
+function scanFarms(callback) {
   var btn = document.getElementById('farms-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
+  var resultsEl = document.getElementById('farms-results');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
+  if (resultsEl) resultsEl.innerHTML = '<span class="text-sec text-sm">Scanning\u2026</span>';
   log('INFO', 'Scanning farms...');
-  fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: 'find farms', walletAddress: _wallet || undefined, mode: _mode })
-  })
+  fetch('/api/find-farms')
   .then(function(r) { return r.json(); })
   .then(function(d) {
-    btn.disabled = false;
-    btn.textContent = 'Scan Farms';
-    if (d.reply) chatAppend('buddy', d.reply);
-    if (d.buddyState) updateBuddyPanel(d.buddyState);
-    log('INFO', 'Farm scan complete.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Scan Farms'; }
+    var farms = d.farms || [];
+    if (farms.length === 0) {
+      if (resultsEl) resultsEl.innerHTML = '<span class="text-sec text-sm">No farms found.</span>';
+      if (callback) callback(farms);
+      return;
+    }
+    var html = '<div style="display:flex;flex-direction:column;gap:2px">';
+    for (var i = 0; i < farms.length; i++) {
+      var f = farms[i];
+      var ilColor = f.impermanentLossRisk === 'low' ? 'var(--green)' : f.impermanentLossRisk === 'high' ? 'var(--red)' : 'var(--accent)';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #EAECEF;font-size:12px">' +
+        '<div>' +
+          '<span style="font-weight:600">' + escapeHtml(f.poolName) + '</span>' +
+          '<span class="text-sec" style="margin-left:5px;font-size:11px">' + escapeHtml(f.protocol) + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;align-items:center">' +
+          '<span style="color:var(--green);font-weight:600">' + f.apy.toFixed(1) + '% APY</span>' +
+          '<span class="text-sec" style="font-size:11px">Risk ' + f.riskScore + '/10</span>' +
+          '<span style="color:' + ilColor + ';font-size:11px">IL:' + escapeHtml(f.impermanentLossRisk) + '</span>' +
+        '</div>' +
+      '</div>';
+    }
+    html += '</div><div class="text-sec" style="font-size:10px;margin-top:4px">Source: ' + escapeHtml(d.dataSource || 'baseline') + '</div>';
+    if (resultsEl) resultsEl.innerHTML = html;
+    log('INFO', 'Farm scan complete: ' + farms.length + ' farms.');
+    if (callback) callback(farms);
   })
   .catch(function(e) {
-    btn.disabled = false;
-    btn.textContent = 'Scan Farms';
+    if (btn) { btn.disabled = false; btn.textContent = 'Scan Farms'; }
+    if (resultsEl) resultsEl.innerHTML = '<span style="color:var(--red);font-size:12px">Scan failed: ' + escapeHtml(e.message) + '</span>';
     log('ERROR', 'Farm scan: ' + e.message);
+    if (callback) callback([]);
   });
 }
 
@@ -3152,20 +3190,26 @@ function runAutonomous() {
   var status = document.getElementById('auto-status');
   btn.textContent = 'Running...';
   btn.disabled = true;
-  status.textContent = 'Planning...';
+  status.textContent = 'Scanning...';
   status.className = 'badge badge-blue';
-  autoLog('[Step 1] Planning trades...');
-  log('INFO', 'Autonomous mode: planning phase');
+  autoLog('[Step 0] Scanning farm opportunities...');
+  log('INFO', 'Autonomous mode: farm scan phase');
 
-  // Scroll to chat so user can watch trades happen live
-  var chatCard = document.getElementById('chat-card');
-  if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Step 0: scan farms into the card, then move to planning in chat
+  scanFarms(function() {
+    status.textContent = 'Planning...';
+    autoLog('[Step 1] Planning trades...');
+    log('INFO', 'Autonomous mode: planning phase');
 
-  var planMessage = 'You are in autonomous mode. Plan 3 small trades using ~20% of my BNB balance. ' +
-    'For each trade, specify: the exact action (swap/supply/deposit), the exact amount, the token, and the protocol. ' +
-    'Format each step as a numbered list. Do NOT execute yet — just plan.';
+    // Scroll to chat so user can watch trades happen live
+    var chatCard = document.getElementById('chat-card');
+    if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  autoChat(planMessage, function(reply, err) {
+    var planMessage = 'You are in autonomous mode. Plan 3 small trades using ~20% of my BNB balance. ' +
+      'For each trade, specify: the exact action (swap/supply/deposit), the exact amount, the token, and the protocol. ' +
+      'Format each step as a numbered list. Do NOT execute yet — just plan.';
+
+    autoChat(planMessage, function(reply, err) {
     if (err || !reply) {
       autoLog('[Step 1] Planning failed: ' + (err || 'no response'));
       finishAutonomous('Error');
@@ -3192,7 +3236,8 @@ function runAutonomous() {
     executeStep(steps, 0, function() {
       finishAutonomous('Complete');
     });
-  });
+    });  // end autoChat callback
+  });  // end scanFarms callback
 }
 
 function executeStep(steps, index, done) {
