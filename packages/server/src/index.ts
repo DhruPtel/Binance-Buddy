@@ -3174,33 +3174,21 @@ function hasTxHash(text) {
 // Build concrete execution steps from farm scan data (client-side, no LLM)
 // Picks top 3 non-LP farms and generates small fixed-amount commands.
 // ---------------------------------------------------------------------------
-// tradeAmt is passed in as a formatted string (e.g. "0.0100") derived from wallet balance
 function buildAutoSteps(farms, tradeAmt) {
-  var fallbacks = [
-    'Swap ' + tradeAmt + ' BNB for USDT.',
-    'Supply ' + tradeAmt + ' BNB to Venus BNB Lending.',
-    'Swap ' + tradeAmt + ' BNB for CAKE.',
-  ];
-  var steps = [];
-  for (var i = 0; i < farms.length && steps.length < 3; i++) {
-    var f = farms[i];
-    // Skip LP farms (two-token pools with impermanent loss risk)
-    if (f.poolName.indexOf('LP') !== -1 || (f.tokens && f.tokens.length >= 2)) continue;
-    var token = f.tokens && f.tokens[0];
-    var isBnb = token === 'BNB';
-    if (isBnb) {
-      steps.push('Supply ' + tradeAmt + ' BNB to ' + f.protocol + ' ' + f.poolName + '.');
-    } else if (token) {
-      steps.push('Swap ' + tradeAmt + ' BNB for ' + token + ' then supply to ' + f.protocol + ' ' + f.poolName + '.');
+  var steps = farms.slice(0, 3).map(function(f) {
+    var pool = f.poolName;
+    var proto = f.protocol;
+    if (pool.indexOf('LP') !== -1) {
+      return 'Add ' + tradeAmt + ' BNB to ' + pool + ' on ' + proto + '.';
     }
-  }
-  // Always pad to exactly 3 steps using safe fallbacks
-  var fi = 0;
-  while (steps.length < 3) {
-    steps.push(fallbacks[fi % fallbacks.length]);
-    fi++;
-  }
-  console.log('[autonomous] buildAutoSteps: tradeAmt=' + tradeAmt + ', ' + steps.length + ' steps from ' + farms.length + ' farms');
+    var tokens = f.tokens || [];
+    var nonBnb = tokens.filter(function(t) { return t !== 'BNB'; })[0];
+    if (nonBnb) {
+      return 'Swap ' + tradeAmt + ' BNB for ' + nonBnb + ' then supply to ' + proto + ' ' + pool + '.';
+    }
+    return 'Supply ' + tradeAmt + ' BNB on ' + proto + ' ' + pool + '.';
+  });
+  console.log('[autonomous] buildAutoSteps: tradeAmt=' + tradeAmt + ', ' + steps.length + ' steps');
   return steps;
 }
 
