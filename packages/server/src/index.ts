@@ -1060,6 +1060,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .main { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-top { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
   .card {
     background: #FFFFFF; border-radius: var(--radius-md); padding: 16px;
     border: 1px solid #EAECEF; box-shadow: var(--shadow-md);
@@ -1273,7 +1274,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
 <div class="main">
 
   <!-- Row 1: Health | Buddy -->
-  <div class="grid-2">
+  <div class="grid-top">
 
     <!-- Agent Overview -->
     <div class="card" id="agent-overview-card">
@@ -1327,7 +1328,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     <!-- Buddy -->
     <div class="card" id="buddy-card">
       <h2>Your Buddy</h2>
-      <div id="buddy-canvas-wrap" style="width:100%;height:250px;background:#F8F9FA;border-radius:var(--radius-md);overflow:hidden;margin-bottom:10px;position:relative"></div>
+      <div id="buddy-canvas-wrap" style="width:100%;height:200px;background:#F8F9FA;border-radius:var(--radius-md);overflow:hidden;margin-bottom:10px;position:relative"></div>
       <div style="text-align:center;margin-bottom:8px">
         <span id="buddy-stage-label" style="font-weight:600;font-family:'Space Grotesk',sans-serif">Seedling</span>
         <span class="text-sec text-sm"> · Lv.<span id="buddy-level">1</span></span>
@@ -1725,9 +1726,14 @@ function refreshAgentOverview() {
                 var html = '';
                 for (var j = 0; j < tokens.length; j++) {
                   var t = tokens[j];
-                  html += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #EAECEF">' +
+                  var rowClass = j >= 3 ? ' class="ao-token-extra"' : '';
+                  var rowDisplay = j >= 3 ? 'none' : 'flex';
+                  html += '<div' + rowClass + ' style="display:' + rowDisplay + ';justify-content:space-between;padding:4px 0;border-bottom:1px solid #EAECEF">' +
                     '<span style="font-weight:600">' + escapeHtml(t.symbol) + '</span>' +
                     '<span>' + formatNum(t.balanceFormatted) + ' <span class="text-sec">(' + formatUsd(t.valueUsd) + ')</span></span></div>';
+                }
+                if (tokens.length > 3) {
+                  html += '<div id="ao-tokens-toggle" onclick="toggleTokens()" style="margin-top:6px;font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none">Show all (' + tokens.length + ' tokens) ▾</div>';
                 }
                 tokensEl.innerHTML = html;
               }
@@ -1761,6 +1767,18 @@ function copyAgentAddr() {
     label.textContent = 'Copied!';
     setTimeout(function() { label.textContent = 'Copy'; }, 1500);
   });
+}
+
+function toggleTokens() {
+  var extras = document.querySelectorAll('#ao-tokens .ao-token-extra');
+  var toggle = document.getElementById('ao-tokens-toggle');
+  if (!toggle || !extras.length) return;
+  var expanded = toggle.getAttribute('data-expanded') === '1';
+  for (var i = 0; i < extras.length; i++) {
+    extras[i].style.display = expanded ? 'none' : 'flex';
+  }
+  toggle.setAttribute('data-expanded', expanded ? '0' : '1');
+  toggle.textContent = expanded ? 'Show all (' + (extras.length + 3) + ' tokens) \u25be' : 'Show less \u25b4';
 }
 
 function createNewWallet() {
