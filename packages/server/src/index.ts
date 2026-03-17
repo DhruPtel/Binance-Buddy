@@ -1019,16 +1019,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .indicator.err { background: rgba(246,70,93,0.12); color: var(--red); }
   .indicator.off { background: rgba(255,255,255,0.06); color: var(--text-tertiary); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  /* Controls bar */
-  .controls-bar {
-    padding: 10px 24px; background: var(--bg-secondary); border-bottom: 1px solid rgba(255,255,255,0.04);
-    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  }
-  .controls-bar .wallet-input-wrap { display: flex; gap: 8px; flex: 1; min-width: 260px; }
-  .mode-toggle { display: flex; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid rgba(255,255,255,0.1); }
-  .mode-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: none; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; transition: all 150ms; }
-  .mode-btn.active.normal { background: rgba(14,203,129,0.2); color: var(--green); }
-  .mode-btn.active.trenches { background: rgba(255,140,0,0.2); color: var(--orange); }
   /* Main content */
   .main { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
@@ -1037,7 +1027,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     background: var(--bg-secondary); border-radius: var(--radius-md); padding: 16px;
     border: 1px solid rgba(255,255,255,0.06); box-shadow: var(--shadow-md);
   }
-  .card.trenches-active { border-color: rgba(255,140,0,0.35); }
   /* Inputs / Buttons */
   input[type="text"], input[type="number"] {
     background: var(--bg-tertiary); border: 1px solid transparent; border-radius: var(--radius-sm);
@@ -1113,11 +1102,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .trade-inputs { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 8px; align-items: end; margin-bottom: 12px; }
   .trade-arrow { text-align: center; color: var(--text-tertiary); font-size: 18px; padding-bottom: 4px; }
   .tx-result { background: var(--bg-tertiary); border-radius: var(--radius-sm); padding: 12px; display: none; margin-top: 10px; }
-  /* Trenches */
-  .sniper-status { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; }
-  .sniper-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); }
-  .sniper-dot.active { background: var(--orange); box-shadow: 0 0 8px var(--orange); animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
   /* Activity log */
   .log-box {
     background: var(--bg-chat); border-radius: var(--radius-sm); height: 180px;
@@ -1135,7 +1119,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .lt-error { color: var(--red); background: rgba(246,70,93,0.1); }
   .lt-research { color: var(--blue); background: rgba(24,144,255,0.08); }
   .lt-health { color: var(--green); background: rgba(14,203,129,0.08); }
-  .lt-trenches { color: var(--orange); background: rgba(255,140,0,0.1); }
   .lt-trade { color: var(--green); background: rgba(14,203,129,0.1); }
   /* Status/badge */
   .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
