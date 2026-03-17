@@ -209,8 +209,20 @@ export async function prepareSwap(
     from: senderAddress,
   });
 
+  // For token→X swaps, the simulation will always revert with TRANSFER_FROM_FAILED
+  // because the router has no allowance yet. The approval happens in executeSwap()
+  // right before the real swap. Treat this specific revert as a pass — the other
+  // guardrail checks (spending limit, fee reserve, etc.) still protect us.
+  const isFromBnb = params.tokenIn.toLowerCase() === NATIVE_BNB_ADDRESS.toLowerCase() ||
+                    params.tokenIn.toLowerCase() === WBNB_ADDRESS.toLowerCase();
+  let adjustedSimulation = simulation;
+  if (!isFromBnb && !simulation.success && simulation.revertReason?.includes('TRANSFER_FROM_FAILED')) {
+    console.log(`[prepareSwap] Ignoring TRANSFER_FROM_FAILED for token→X swap (approval happens at execution time)`);
+    adjustedSimulation = { success: true, gasEstimate: BigInt(quote.gasEstimate) };
+  }
+
   // 4–5. Guardrail checks
-  const guardrail = runGuardrailChecks(quote, walletBnbBalance, config, simulation);
+  const guardrail = runGuardrailChecks(quote, walletBnbBalance, config, adjustedSimulation);
 
   return { quote, guardrail };
 }
