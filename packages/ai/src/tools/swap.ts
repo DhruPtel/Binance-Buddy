@@ -7,6 +7,7 @@ import { parseUnits } from 'ethers';
 import type { AgentTool, AgentContext } from '@binancebuddy/core';
 import {
   resolveToken,
+  TOKEN_SYMBOL_MAP,
   NATIVE_BNB_ADDRESS,
   WBNB_ADDRESS,
   BNB_FEE_RESERVE,
@@ -68,6 +69,22 @@ export const swapTokensTool: AgentTool = {
     }
     if (!outAddr) {
       return { error: `Unknown token: ${tokenOutRaw}. Use a contract address or a known symbol.` };
+    }
+
+    // Log resolved addresses so mismatches are visible in server output
+    const inSymbol = TOKEN_SYMBOL_MAP[inAddr.toLowerCase()] ?? (inAddr === NATIVE_BNB_ADDRESS ? 'BNB' : 'UNKNOWN');
+    const outSymbol = TOKEN_SYMBOL_MAP[outAddr.toLowerCase()] ?? (outAddr === NATIVE_BNB_ADDRESS ? 'BNB' : 'UNKNOWN');
+    console.log(`[swap_tokens] tokenIn: "${tokenInRaw}" → ${inAddr} (${inSymbol})`);
+    console.log(`[swap_tokens] tokenOut: "${tokenOutRaw}" → ${outAddr} (${outSymbol})`);
+
+    // Guard: if agent passed a 0x address, verify it matches a known token.
+    // Prevents the agent from accidentally swapping the wrong token when it
+    // picks up a stale address from check_positions or resolve_contract context.
+    if (tokenInRaw.startsWith('0x') && inSymbol === 'UNKNOWN') {
+      return { error: `Unrecognized token address ${tokenInRaw}. Use a symbol (USDT, CAKE, etc.) instead of a raw address for known tokens.` };
+    }
+    if (tokenOutRaw.startsWith('0x') && outSymbol === 'UNKNOWN') {
+      return { error: `Unrecognized token address ${tokenOutRaw}. Use a symbol (USDT, CAKE, etc.) instead of a raw address for known tokens.` };
     }
 
     const amount = parseFloat(amountInDecimal);

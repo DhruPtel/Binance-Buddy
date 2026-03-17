@@ -232,16 +232,33 @@ export async function executeSwap(
                     params.tokenIn.toLowerCase() === WBNB_ADDRESS.toLowerCase();
 
   if (!isFromBnb) {
+    // Sanity check: the token we approve MUST match the first token in the swap path.
+    // If these diverge, we'd approve token A but the router pulls token B → revert.
+    if (quote.path.length > 0 && params.tokenIn.toLowerCase() !== quote.path[0].toLowerCase()) {
+      console.error(`[executeSwap] MISMATCH: approving ${params.tokenIn} but swap path[0] is ${quote.path[0]}`);
+      return {
+        success: false,
+        amountIn: quote.amountIn,
+        amountOut: '0',
+        error: `Token mismatch: approval target ${params.tokenIn} differs from swap path ${quote.path[0]}`,
+      };
+    }
+
+    console.log(`[executeSwap] Approving token ${params.tokenIn} for router ${PANCAKESWAP_V2_ROUTER}, amount: ${quote.amountIn}`);
+
     const approval = await checkApproval(
       provider,
       params.tokenIn,
       signerAddress,
       PANCAKESWAP_V2_ROUTER,
-      BigInt(params.amountIn),
+      BigInt(quote.amountIn),
     );
 
     if (approval.needsApproval) {
+      console.log(`[executeSwap] Allowance insufficient (${approval.currentAllowance} < ${quote.amountIn}), sending approve tx...`);
       await executeApproval(signer, params.tokenIn, PANCAKESWAP_V2_ROUTER);
+    } else {
+      console.log(`[executeSwap] Allowance sufficient (${approval.currentAllowance}), skipping approve`);
     }
   }
 
