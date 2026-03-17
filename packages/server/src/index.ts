@@ -2671,14 +2671,13 @@ function clearAutoLog() {
 }
 
 // ---------------------------------------------------------------------------
-// Farm Scanner — accepts optional callback with parsed farm results
+// Farm Scanner (manual button only)
 // ---------------------------------------------------------------------------
-function scanFarms(onComplete) {
+function scanFarms() {
   var btn = document.getElementById('farms-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   log('INFO', 'Scanning farms...');
-  console.log('[autonomous] scanFarms() called');
   fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: 'find farms', walletAddress: _wallet || undefined, mode: _mode })
   })
@@ -2686,92 +2685,170 @@ function scanFarms(onComplete) {
   .then(function(d) {
     btn.disabled = false;
     btn.textContent = 'Scan Farms';
-    var farms = (_latestReport && _latestReport.opportunities) || [];
-    console.log('[autonomous] scanFarms result: ' + farms.length + ' farms from _latestReport, reply: ' + (d.reply || '').slice(0, 80));
-    var html = '';
-    if (farms.length > 0) {
-      for (var i = 0; i < Math.min(farms.length, 5); i++) {
-        var f = farms[i];
-        var riskCls = f.riskScore <= 3 ? 'risk-low' : f.riskScore <= 6 ? 'risk-med' : 'risk-high';
-        var apyCls = f.apy >= 20 ? 'apy-high' : f.apy >= 10 ? 'apy-mid' : '';
-        html += '<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">' +
-          '<strong>' + escapeHtml(f.poolName) + '</strong> (' + escapeHtml(f.protocol) + ')' +
-          '<div><span class="' + apyCls + '">' + f.apy.toFixed(1) + '% APY</span>' +
-          ' · Risk: <span class="' + riskCls + '">' + f.riskScore + '/10</span>' +
-          ' · IL: ' + escapeHtml(f.impermanentLossRisk || '-') + '</div>' +
-          '</div>';
-      }
-    } else {
-      html = '<div class="text-sec text-sm">' + escapeHtml(d.reply || 'No farms found') + '</div>';
-    }
-    document.getElementById('farms-results').innerHTML = html;
-    log('INFO', 'Farm scan complete. ' + farms.length + ' opportunities found.');
+    if (d.reply) chatAppend('buddy', d.reply);
     if (d.buddyState) updateBuddyPanel(d.buddyState);
-    if (typeof onComplete === 'function') onComplete(farms);
+    log('INFO', 'Farm scan complete.');
   })
   .catch(function(e) {
     btn.disabled = false;
     btn.textContent = 'Scan Farms';
     log('ERROR', 'Farm scan: ' + e.message);
-    if (typeof onComplete === 'function') onComplete([]);
   });
 }
 
 // ---------------------------------------------------------------------------
-// Autonomous Mode
+// Autonomous Mode — 3-step plan-then-execute
 // ---------------------------------------------------------------------------
-function autonomousCycle() {
-  console.log('[autonomous] cycle firing');
-  autoLog('Scanning farms...');
-  scanFarms(function(farms) {
-    if (farms.length === 0) {
-      autoLog('Scanned farms — no opportunities found');
-      console.log('[autonomous] no farms found');
-      return;
+var _autoRunning = false;
+
+// Send a message to agent chat and return the reply via callback
+function autoChat(message, callback) {
+  chatAppend('user', message);
+  document.getElementById('typing-indicator').style.display = 'block';
+  console.log('[autonomous] sending: ' + message.slice(0, 100));
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: message, walletAddress: _wallet || undefined, mode: _mode, history: _chatHistory })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    document.getElementById('typing-indicator').style.display = 'none';
+    var reply = d.reply || '';
+    chatAppend('buddy', reply);
+    if (d.toolName) {
+      chatAppend('tool', '[TOOL] ' + d.toolName);
+      log('TOOL', d.toolName);
     }
-    // Prefer lending/yield over LP — skip anything that would need add_liquidity
-    var preferred = farms.filter(function(f) {
-      var name = ((f.poolName || '') + ' ' + (f.protocol || '')).toLowerCase();
-      var isLp = name.indexOf('lp') >= 0 || name.indexOf('liquidity') >= 0 ||
-                 name.indexOf('-') >= 0 && f.tokens && f.tokens.length > 1;
-      return !isLp;
-    });
-    var f = preferred.length > 0 ? preferred[0] : null;
-    if (!f) {
-      autoLog('Scanned farms — ' + farms.length + ' results but all are LP (skipped)');
-      console.log('[autonomous] all results are LP, skipping');
-      return;
-    }
-    var label = (f.poolName || 'Unknown') + ' ' + f.apy.toFixed(1) + '% APY';
-    autoLog('Scanned — top: ' + label);
-    var action = f.protocol && f.protocol.toLowerCase().indexOf('venus') >= 0 ? 'Supply' : 'Deposit';
-    autoLog('Executing: ' + action + ' ' + (f.poolName || '') + ' on ' + (f.protocol || ''));
-    console.log('[autonomous] executing: ' + action + ' ' + label);
-    executeFromResearch(action, f.poolName || f.tokens.join('/'), f.protocol, 'farming');
+    if (d.xpAwarded > 0) chatAppend('xp', '+' + d.xpAwarded + ' XP');
+    if (d.history) _chatHistory = d.history;
+    if (d.buddyState) updateBuddyPanel(d.buddyState);
+    loadCbStatus();
+    console.log('[autonomous] reply: ' + reply.slice(0, 120));
+    callback(reply, null);
+  })
+  .catch(function(e) {
+    document.getElementById('typing-indicator').style.display = 'none';
+    chatAppend('error', 'Error: ' + e.message);
+    console.log('[autonomous] error: ' + e.message);
+    callback(null, e.message);
   });
+}
+
+// Check if reply contains a tx hash (0x + 40+ hex chars)
+function hasTxHash(text) {
+  return /0x[a-fA-F0-9]{40,}/.test(text || '');
+}
+
+// Parse numbered steps from planning response (lines starting with 1. 2. 3.)
+function parsePlanSteps(text) {
+  var steps = [];
+  var lines = text.split(/\\r?\\n/);
+  var current = '';
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    var match = line.match(/^(\\d+)[.)\\-]\\s+(.+)/);
+    if (match) {
+      if (current) steps.push(current);
+      current = match[2];
+    } else if (current && line) {
+      current += ' ' + line;
+    }
+  }
+  if (current) steps.push(current);
+  return steps.slice(0, 3);
+}
+
+function runAutonomous() {
+  if (_autoRunning) return;
+  _autoRunning = true;
+  var btn = document.getElementById('auto-toggle');
+  var status = document.getElementById('auto-status');
+  btn.textContent = 'Running...';
+  btn.disabled = true;
+  status.textContent = 'Planning...';
+  status.className = 'badge badge-blue';
+  autoLog('[Step 1] Planning trades...');
+  log('INFO', 'Autonomous mode: planning phase');
+
+  var planMessage = 'You are in autonomous mode. Plan 3 small trades using ~20% of my BNB balance. ' +
+    'For each trade, specify: the exact action (swap/supply/deposit), the exact amount, the token, and the protocol. ' +
+    'Format each step as a numbered list. Do NOT execute yet — just plan.';
+
+  autoChat(planMessage, function(reply, err) {
+    if (err || !reply) {
+      autoLog('[Step 1] Planning failed: ' + (err || 'no response'));
+      finishAutonomous('Error');
+      return;
+    }
+
+    // Parse the plan
+    var steps = parsePlanSteps(reply);
+    console.log('[autonomous] parsed ' + steps.length + ' steps from plan');
+
+    if (steps.length === 0) {
+      // If parsing failed, try the whole reply as context
+      autoLog('[Step 1] Planned (could not parse steps, will ask agent to execute sequentially)');
+      steps = ['Execute step 1 from your plan above.', 'Execute step 2 from your plan above.', 'Execute step 3 from your plan above.'];
+    } else {
+      var preview = steps.map(function(s, i) { return (i+1) + '. ' + s.slice(0, 60); }).join(', ');
+      autoLog('[Step 1] Planned: ' + preview);
+    }
+
+    status.textContent = 'Executing...';
+    status.className = 'badge badge-green';
+
+    // Execute steps sequentially
+    executeStep(steps, 0, function() {
+      finishAutonomous('Complete');
+    });
+  });
+}
+
+function executeStep(steps, index, done) {
+  if (index >= steps.length) { done(); return; }
+  var stepNum = index + 1;
+  var stepText = steps[index];
+  autoLog('[Step ' + (stepNum + 1) + '] Executing trade ' + stepNum + '...');
+  log('INFO', 'Autonomous: executing step ' + stepNum);
+
+  var message = 'Execute step ' + stepNum + ': ' + stepText;
+  autoChat(message, function(reply, err) {
+    if (err) {
+      autoLog('[Step ' + (stepNum + 1) + '] Error: ' + err);
+    } else if (hasTxHash(reply)) {
+      var txMatch = reply.match(/0x[a-fA-F0-9]{40,}/);
+      autoLog('[Step ' + (stepNum + 1) + '] Done: Tx ' + (txMatch ? txMatch[0].slice(0, 14) + '...' : 'confirmed'));
+    } else {
+      autoLog('[Step ' + (stepNum + 1) + '] Done: ' + (reply || 'no response').slice(0, 80));
+    }
+
+    // Wait 5 seconds before next step
+    setTimeout(function() {
+      executeStep(steps, index + 1, done);
+    }, 5000);
+  });
+}
+
+function finishAutonomous(statusText) {
+  _autoRunning = false;
+  var btn = document.getElementById('auto-toggle');
+  var status = document.getElementById('auto-status');
+  btn.textContent = 'Activate Autonomous';
+  btn.disabled = false;
+  status.textContent = statusText;
+  status.className = statusText === 'Complete' ? 'badge badge-green' : 'badge badge-red';
+  autoLog('Autonomous mode ' + statusText.toLowerCase());
+  log('INFO', 'Autonomous mode ' + statusText.toLowerCase());
 }
 
 function toggleAutonomous() {
-  var btn = document.getElementById('auto-toggle');
-  var status = document.getElementById('auto-status');
-  if (_autoInterval) {
-    clearInterval(_autoInterval);
-    _autoInterval = null;
-    btn.textContent = 'Activate Autonomous';
-    status.textContent = 'Inactive';
-    status.className = 'badge badge-red';
-    autoLog('Autonomous mode stopped');
-    log('INFO', 'Autonomous mode stopped');
-  } else {
-    btn.textContent = 'Stop Autonomous';
-    status.textContent = 'Active — scanning every 5 min';
-    status.className = 'badge badge-green';
-    autoLog('Autonomous mode activated — scanning every 5 min');
-    log('INFO', 'Autonomous mode activated');
-    // Fire immediately, then every 5 minutes
-    autonomousCycle();
-    _autoInterval = setInterval(autonomousCycle, 300000);
+  if (_autoRunning) {
+    // Can't stop mid-run — just let it finish
+    autoLog('Cannot stop while executing — will finish current run');
+    return;
   }
+  runAutonomous();
 }
 
 
