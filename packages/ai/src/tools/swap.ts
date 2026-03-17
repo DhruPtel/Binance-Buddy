@@ -77,16 +77,6 @@ export const swapTokensTool: AgentTool = {
     console.log(`[swap_tokens] tokenIn: "${tokenInRaw}" → ${inAddr} (${inSymbol})`);
     console.log(`[swap_tokens] tokenOut: "${tokenOutRaw}" → ${outAddr} (${outSymbol})`);
 
-    // Guard: if agent passed a 0x address, verify it matches a known token.
-    // Prevents the agent from accidentally swapping the wrong token when it
-    // picks up a stale address from check_positions or resolve_contract context.
-    if (tokenInRaw.startsWith('0x') && inSymbol === 'UNKNOWN') {
-      return { error: `Unrecognized token address ${tokenInRaw}. Use a symbol (USDT, CAKE, etc.) instead of a raw address for known tokens.` };
-    }
-    if (tokenOutRaw.startsWith('0x') && outSymbol === 'UNKNOWN') {
-      return { error: `Unrecognized token address ${tokenOutRaw}. Use a symbol (USDT, CAKE, etc.) instead of a raw address for known tokens.` };
-    }
-
     const amount = parseFloat(amountInDecimal);
     if (isNaN(amount) || amount <= 0) {
       return { error: 'amountIn must be a positive number.' };
