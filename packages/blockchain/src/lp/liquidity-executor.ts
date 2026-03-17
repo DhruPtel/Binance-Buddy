@@ -185,7 +185,12 @@ async function executeLPEntryV3(
 
   const deadline = await getChainDeadline(provider);
   const { tickLower, tickUpper } = fullRangeTicks(v3Pool.tickSpacing);
-  const slippageFactor = 10_000n - BigInt(slippageBps);
+  // V3 mint is more price-sensitive than a swap — the position manager computes
+  // exact amounts at the execution block's price. Use a 3% floor so that normal
+  // price movement between quote time and mint time doesn't cause a revert.
+  // The swap step above still uses the caller's slippageBps unchanged.
+  const mintSlippageBps = Math.max(slippageBps, 300);
+  const slippageFactor = 10_000n - BigInt(mintSlippageBps);
 
   // Sort tokens — V3 requires token0 < token1
   const [token0, token1, isWbnbToken0] = sortTokens(WBNB_ADDRESS, tokenAddress);
