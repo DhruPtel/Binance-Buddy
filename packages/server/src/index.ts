@@ -1,4 +1,8 @@
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+import { resolve as pathResolve } from 'path';
+// Load .env from monorepo root — pnpm exec sets CWD to the package dir so dotenv/config
+// would look in packages/server/ instead of the root. Use __dirname for explicit path.
+dotenvConfig({ path: pathResolve(__dirname, '../../../.env') });
 // =============================================================================
 // @binancebuddy/server — Dev Dashboard & API
 // =============================================================================
@@ -196,6 +200,42 @@ app.post('/api/scan/:address', async (req, res) => {
     res.type('application/json').send(safeStringify({ walletState, profile: fullProfile }));
   } catch (e) {
     res.status(500).json({ error: String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Moralis Token Balances (comprehensive BEP-20 discovery)
+// ---------------------------------------------------------------------------
+app.get('/api/wallet-tokens/:address', async (req, res) => {
+  const { address } = req.params;
+  if (!MORALIS_API_KEY) {
+    res.status(503).json({ error: 'MORALIS_API_KEY not configured', tokens: [] });
+    return;
+  }
+  try {
+    const url = `https://deep-index.moralis.io/api/v2.2/${address}/erc20?chain=bsc`;
+    const r = await fetch(url, { headers: { 'X-API-Key': MORALIS_API_KEY } });
+    if (!r.ok) {
+      res.status(r.status).json({ error: `Moralis ${r.status}`, tokens: [] });
+      return;
+    }
+    const raw = (await r.json()) as any;
+    const list: any[] = Array.isArray(raw) ? raw : (raw.result ?? []);
+    const tokens = list
+      .filter((t: any) => !t.possible_spam)
+      .map((t: any) => ({
+        token_address: t.token_address,
+        name: t.name ?? t.symbol,
+        symbol: t.symbol,
+        decimals: t.decimals,
+        balance_formatted: t.balance_formatted ??
+          (Number(t.balance) / 10 ** Number(t.decimals || 18)).toFixed(6),
+        usd_price: t.usd_price ?? null,
+        usd_value: t.usd_value ?? null,
+      }));
+    res.json({ tokens });
+  } catch (e) {
+    res.status(500).json({ error: String(e), tokens: [] });
   }
 });
 
@@ -1704,55 +1744,50 @@ function refreshAgentOverview() {
         addrEl.title = d.address;
         var bnbBal = d.bnbBalanceFormatted || 0;
         bnbEl.textContent = bnbBal.toFixed(4) + ' BNB';
-        // Fetch BNB price for USD
-        fetch('/api/scan/' + d.address, { method: 'POST' })
+        // Fetch all BEP-20 token balances via Moralis
+        fetch('/api/wallet-tokens/' + d.address)
           .then(function(r2) { return r2.json(); })
-          .then(function(scan) {
-            console.log('[overview] scan response keys:', scan ? Object.keys(scan) : 'null');
-            if (scan.walletState) {
-              var bnbPrice = 0;
-              var totalUsd = scan.walletState.totalValueUsd || 0;
-              // BNB USD = total minus token values
-              var tokenValueUsd = 0;
-              var tokens = scan.walletState.tokens || [];
-              console.log('[overview] tokens found:', tokens.length);
-              _agentTokens = tokens;
-              for (var i = 0; i < tokens.length; i++) tokenValueUsd += tokens[i].valueUsd || 0;
-              var bnbUsd = totalUsd - tokenValueUsd;
-              bnbUsdEl.textContent = formatUsd(bnbUsd);
+          .then(function(result) {
+            console.log('[overview] wallet-tokens:', result.tokens ? result.tokens.length : result.error);
+            var tokens = result.tokens || [];
+            _agentTokens = tokens;
 
-              // Render token list
-              if (tokens.length === 0) {
-                tokensEl.innerHTML = '<span class="text-sec">No tokens detected</span>';
-              } else {
-                var html = '';
-                for (var j = 0; j < tokens.length; j++) {
-                  var t = tokens[j];
-                  var rowClass = j >= 3 ? ' class="ao-token-extra"' : '';
-                  var rowDisplay = j >= 3 ? 'none' : 'flex';
-                  html += '<div' + rowClass + ' style="display:' + rowDisplay + ';justify-content:space-between;padding:4px 0;border-bottom:1px solid #EAECEF">' +
-                    '<span style="font-weight:600">' + escapeHtml(t.symbol) + '</span>' +
-                    '<span>' + formatNum(t.balanceFormatted) + ' <span class="text-sec">(' + formatUsd(t.valueUsd) + ')</span></span></div>';
-                }
-                if (tokens.length > 3) {
-                  html += '<div id="ao-tokens-toggle" onclick="toggleTokens()" style="margin-top:6px;font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none">Show all (' + tokens.length + ' tokens) ▾</div>';
-                }
-                tokensEl.innerHTML = html;
+            // Render token list with full names
+            if (tokens.length === 0) {
+              tokensEl.innerHTML = '<span class="text-sec">No tokens detected</span>';
+            } else {
+              var html = '';
+              for (var j = 0; j < tokens.length; j++) {
+                var t = tokens[j];
+                var bal = parseFloat(t.balance_formatted || '0');
+                var usdVal = t.usd_value || 0;
+                var rowClass = j >= 3 ? ' class="ao-token-extra"' : '';
+                var rowDisplay = j >= 3 ? 'none' : 'flex';
+                var nameSpan = (t.name && t.name !== t.symbol)
+                  ? '<span class="text-sec" style="font-size:11px;margin-left:5px">' + escapeHtml(t.name) + '</span>'
+                  : '';
+                html += '<div' + rowClass + ' style="display:' + rowDisplay + ';justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #EAECEF;gap:8px">' +
+                  '<span style="min-width:0;overflow:hidden"><span style="font-weight:600">' + escapeHtml(t.symbol) + '</span>' + nameSpan + '</span>' +
+                  '<span style="white-space:nowrap;flex-shrink:0">' + formatNum(bal) + (usdVal ? ' <span class="text-sec">(' + formatUsd(usdVal) + ')</span>' : '') + '</span></div>';
               }
+              if (tokens.length > 3) {
+                html += '<div id="ao-tokens-toggle" onclick="toggleTokens()" style="margin-top:6px;font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none">Show all (' + tokens.length + ' tokens) \u25be</div>';
+              }
+              tokensEl.innerHTML = html;
+            }
 
-              // Update send dropdown
-              dropdown.innerHTML = '<option value="BNB">BNB</option>';
-              for (var k = 0; k < tokens.length; k++) {
-                var opt = document.createElement('option');
-                opt.value = tokens[k].symbol;
-                opt.textContent = tokens[k].symbol;
-                dropdown.appendChild(opt);
-              }
+            // Update send dropdown
+            dropdown.innerHTML = '<option value="BNB">BNB</option>';
+            for (var k = 0; k < tokens.length; k++) {
+              var opt = document.createElement('option');
+              opt.value = tokens[k].symbol;
+              opt.textContent = tokens[k].symbol + (tokens[k].name && tokens[k].name !== tokens[k].symbol ? ' — ' + tokens[k].name : '');
+              dropdown.appendChild(opt);
             }
           })
-          .catch(function() {
-            bnbUsdEl.textContent = '—';
-            tokensEl.innerHTML = '<span class="text-sec">Scan failed</span>';
+          .catch(function(e) {
+            console.log('[overview] wallet-tokens error:', String(e));
+            tokensEl.innerHTML = '<span class="text-sec">Token scan failed</span>';
           });
       } else {
         addrEl.textContent = 'not configured';
