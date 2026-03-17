@@ -1402,6 +1402,30 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Row 2b: Manual Swap | Manual Transfer -->
+  <div class="grid-2">
+    <div class="card">
+      <h2>Manual Swap (Raw Addresses)</h2>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
+        <input type="text" id="raw-swap-in" placeholder="Token In Address (0x...)" style="font-size:12px" />
+        <input type="text" id="raw-swap-out" placeholder="Token Out Address (0x... or BNB)" style="font-size:12px" />
+        <input type="number" id="raw-swap-amount" placeholder="Amount" step="0.001" min="0" style="font-size:12px" />
+      </div>
+      <button class="btn btn-sm" onclick="manualSwap()">Swap</button>
+      <div id="raw-swap-result" class="text-sm" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h2>Manual Transfer (Raw Addresses)</h2>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
+        <input type="text" id="raw-xfer-token" placeholder="Token Address (0x... or BNB)" style="font-size:12px" />
+        <input type="number" id="raw-xfer-amount" placeholder="Amount" step="0.001" min="0" style="font-size:12px" />
+        <input type="text" id="raw-xfer-to" placeholder="Recipient Address (0x...)" style="font-size:12px" />
+      </div>
+      <button class="btn btn-sm" onclick="manualTransfer()">Transfer</button>
+      <div id="raw-xfer-result" class="text-sm" style="margin-top:8px"></div>
+    </div>
+  </div>
+
   <!-- Row 3: Research (Phase 2) -->
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -2732,6 +2756,63 @@ function prefillTrade(token) {
     amountEl.focus();
   }
   log('TRADE', 'Pre-filled from research: → ' + token);
+}
+
+// =============================================================================
+// Manual Swap / Transfer (raw addresses, no symbol resolution)
+// =============================================================================
+function manualSwap() {
+  var tokenIn = document.getElementById('raw-swap-in').value.trim();
+  var tokenOut = document.getElementById('raw-swap-out').value.trim();
+  var amount = document.getElementById('raw-swap-amount').value.trim();
+  var el = document.getElementById('raw-swap-result');
+  if (!tokenIn || !tokenOut || !amount) { el.innerHTML = '<span style="color:var(--red)">Fill in all fields</span>'; return; }
+  el.innerHTML = '<span class="text-sec"><span class="spinner"></span> Swapping...</span>';
+  log('TRADE', 'Manual swap: ' + amount + ' ' + tokenIn.slice(0,10) + ' → ' + tokenOut.slice(0,10));
+  fetch('/api/swap/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tokenIn: tokenIn, tokenOut: tokenOut, amountBnb: parseFloat(amount), slippageBps: 100 })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.success) {
+      var link = 'https://bscscan.com/tx/' + d.txHash;
+      el.innerHTML = '<span style="color:var(--green)">Success!</span> <a href="' + link + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,14) + '...</a>';
+      log('TRADE', 'Manual swap success: ' + d.txHash.slice(0,14));
+      refreshAgentOverview();
+    } else {
+      el.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
+    }
+  })
+  .catch(function(e) { el.innerHTML = '<span style="color:var(--red)">' + escapeHtml(e.message) + '</span>'; });
+}
+
+function manualTransfer() {
+  var token = document.getElementById('raw-xfer-token').value.trim();
+  var amount = document.getElementById('raw-xfer-amount').value.trim();
+  var to = document.getElementById('raw-xfer-to').value.trim();
+  var el = document.getElementById('raw-xfer-result');
+  if (!token || !amount || !to) { el.innerHTML = '<span style="color:var(--red)">Fill in all fields</span>'; return; }
+  el.innerHTML = '<span class="text-sec"><span class="spinner"></span> Transferring...</span>';
+  log('TRADE', 'Manual transfer: ' + amount + ' ' + token.slice(0,10) + ' → ' + to.slice(0,10));
+  fetch('/api/send-tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token, amount: amount, recipient: to })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.success) {
+      var link = 'https://bscscan.com/tx/' + d.txHash;
+      el.innerHTML = '<span style="color:var(--green)">Sent!</span> <a href="' + link + '" target="_blank" style="color:var(--blue)">' + d.txHash.slice(0,14) + '...</a>';
+      log('TRADE', 'Manual transfer success: ' + d.txHash.slice(0,14));
+      refreshAgentOverview();
+    } else {
+      el.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
+    }
+  })
+  .catch(function(e) { el.innerHTML = '<span style="color:var(--red)">' + escapeHtml(e.message) + '</span>'; });
 }
 
 // =============================================================================
