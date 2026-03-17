@@ -1974,12 +1974,14 @@ function renderTransferList() {
     el.innerHTML = '<span class="text-sec text-sm">No tokens with balance found.</span>';
     return;
   }
+  var XFER_PREVIEW = 3;
   var html = '';
   for (var i = 0; i < visible.length; i++) {
     var t = visible[i];
     var bal = parseFloat(t.balance_formatted || '0');
     var id = 'xfer-' + i;
-    html += '<div id="' + id + '-row" style="padding:6px 0;border-bottom:1px solid #EAECEF">' +
+    var extraStyle = i >= XFER_PREVIEW ? 'display:none' : '';
+    html += '<div id="' + id + '-row" class="xfer-extra-row" style="padding:6px 0;border-bottom:1px solid #EAECEF;' + extraStyle + '">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
         '<span><span style="font-weight:600">' + escapeHtml(t.symbol) + '</span>' +
         '<span class="text-sec" style="font-size:11px;margin-left:6px">' + formatNum(bal) + '</span></span>' +
@@ -1998,8 +2000,34 @@ function renderTransferList() {
       '</div>' +
     '</div>';
   }
+  if (visible.length > XFER_PREVIEW) {
+    var remaining = visible.length - XFER_PREVIEW;
+    html += '<div id="xfer-toggle-row" style="padding:4px 0;text-align:right">' +
+      '<a href="#" id="xfer-toggle-link" onclick="toggleXferList(event)" style="font-size:11px;color:var(--accent);text-decoration:none">Show more (' + remaining + ' tokens)</a>' +
+    '</div>';
+  }
   el.innerHTML = html;
   el._xferTokens = visible;
+  el._xferExpanded = false;
+}
+
+function toggleXferList(e) {
+  e.preventDefault();
+  var el = document.getElementById('xfer-token-list');
+  if (!el) return;
+  var expanded = el._xferExpanded;
+  var rows = el.querySelectorAll('.xfer-extra-row');
+  var link = document.getElementById('xfer-toggle-link');
+  var visible = el._xferTokens || [];
+  var XFER_PREVIEW = 3;
+  for (var i = 0; i < rows.length; i++) {
+    if (i >= XFER_PREVIEW) rows[i].style.display = expanded ? 'none' : '';
+  }
+  el._xferExpanded = !expanded;
+  if (link) {
+    var remaining = visible.length - XFER_PREVIEW;
+    link.textContent = expanded ? 'Show more (' + remaining + ' tokens)' : 'Show less';
+  }
 }
 
 function showXferForm(i) {
