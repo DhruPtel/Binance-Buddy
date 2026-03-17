@@ -662,14 +662,15 @@ app.post('/api/send-tokens', async (req, res) => {
     return;
   }
 
-  const { token, amount, recipient } = req.body as {
+  const { token, amount, recipient, contractAddress } = req.body as {
     token?: string;
     amount?: string;
     recipient?: string;
+    contractAddress?: string;
   };
 
-  if (!token || !amount || !recipient) {
-    res.status(400).json({ error: 'token, amount, and recipient are required' });
+  if (!amount || !recipient) {
+    res.status(400).json({ error: 'amount and recipient are required' });
     return;
   }
   if (!recipient.startsWith('0x') || recipient.length !== 42) {
@@ -685,18 +686,21 @@ app.post('/api/send-tokens', async (req, res) => {
 
   try {
     const signer = agentWallet.connect(provider);
-    const amountWei = ethers.parseEther(amount);
 
-    if (token.toUpperCase() === 'BNB') {
+    if (token && token.toUpperCase() === 'BNB') {
       // Native BNB transfer
+      const amountWei = ethers.parseEther(amount);
       const tx = await signer.sendTransaction({ to: recipient, value: amountWei });
       const receipt = await tx.wait();
       res.json({ success: true, txHash: tx.hash, gasUsed: receipt?.gasUsed.toString() });
     } else {
-      // BEP-20 token transfer
-      const tokenAddr = resolveToken(token);
+      // BEP-20: use contractAddress directly if provided, else resolve by symbol
+      const isValidAddr = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
+      const tokenAddr = (contractAddress && isValidAddr(contractAddress))
+        ? contractAddress
+        : resolveToken(token ?? '');
       if (!tokenAddr) {
-        res.status(400).json({ error: `Unknown token: ${token}` });
+        res.status(400).json({ error: `Unknown token: ${token ?? '(none)'}. Provide contractAddress for non-standard tokens.` });
         return;
       }
       const erc20 = new ethers.Contract(tokenAddr, [
@@ -1430,6 +1434,28 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
       </div>
       <div id="trade-error" class="text-sm" style="color:var(--red);margin-bottom:8px;display:none"></div>
       <div class="tx-result" id="tx-result"></div>
+
+      <!-- Transfer (Failsafe) -->
+      <div style="border-top:1px solid #EAECEF;margin-top:16px;padding-top:14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <h2 style="margin:0;font-size:14px">Transfer (Failsafe)</h2>
+          <span class="badge badge-gold" style="font-size:10px">bypass swaps</span>
+        </div>
+
+        <!-- Send All -->
+        <div style="background:var(--bg-secondary);border-radius:var(--radius-md);padding:10px;margin-bottom:12px">
+          <div class="text-sec text-sm" style="margin-bottom:6px;font-weight:600">Send all tokens to your personal wallet</div>
+          <div style="display:flex;gap:8px;margin-bottom:6px">
+            <input type="text" id="xfer-all-recipient" placeholder="Your wallet address (0x...)" style="font-size:12px" />
+            <button class="btn btn-sm" onclick="sendAllTokens()">Send All \u2192</button>
+          </div>
+          <div id="xfer-all-progress" style="font-size:12px;display:none;line-height:1.9;margin-top:2px"></div>
+        </div>
+
+        <!-- Per-token -->
+        <div class="text-sec text-sm" style="margin-bottom:6px">Individual transfers:</div>
+        <div id="xfer-token-list"><span class="text-sec text-sm">Refresh Agent Overview to load tokens.</span></div>
+      </div>
     </div>
   </div>
 
@@ -1757,6 +1783,7 @@ function refreshAgentOverview() {
               return true;
             });
             _agentTokens = tokens;
+            renderTransferList();
 
             // Render token list with full names and contract addresses
             if (tokens.length === 0) {
@@ -1877,6 +1904,130 @@ function sendTokens() {
     .catch(function(e) {
       resultEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(e.message) + '</span>';
     });
+}
+
+// =============================================================================
+// Transfer (Failsafe)
+// =============================================================================
+function renderTransferList() {
+  var el = document.getElementById('xfer-token-list');
+  if (!el) return;
+  if (!_agentTokens || _agentTokens.length === 0) {
+    el.innerHTML = '<span class="text-sec text-sm">No tokens loaded. Refresh Agent Overview.</span>';
+    return;
+  }
+  var visible = _agentTokens.filter(function(t) { return parseFloat(t.balance_formatted || '0') > 1e-6; });
+  if (visible.length === 0) {
+    el.innerHTML = '<span class="text-sec text-sm">No tokens with balance found.</span>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < visible.length; i++) {
+    var t = visible[i];
+    var bal = parseFloat(t.balance_formatted || '0');
+    var id = 'xfer-' + i;
+    html += '<div id="' + id + '-row" style="padding:6px 0;border-bottom:1px solid #EAECEF">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span><span style="font-weight:600">' + escapeHtml(t.symbol) + '</span>' +
+        '<span class="text-sec" style="font-size:11px;margin-left:6px">' + formatNum(bal) + '</span></span>' +
+        '<button class="btn btn-sec btn-sm" onclick="showXferForm(' + i + ')">Send \u2192</button>' +
+      '</div>' +
+      '<div id="' + id + '-form" style="display:none;margin-top:8px">' +
+        '<div style="display:flex;flex-direction:column;gap:6px">' +
+          '<input type="number" id="' + id + '-amount" value="' + bal + '" step="any" min="0" style="font-size:12px" />' +
+          '<input type="text" id="' + id + '-recipient" placeholder="Recipient 0x..." style="font-size:12px" />' +
+          '<div style="display:flex;gap:6px">' +
+            '<button class="btn btn-sm" onclick="confirmXfer(' + i + ')">Confirm Send</button>' +
+            '<button class="btn btn-sec btn-sm" onclick="hideXferForm(' + i + ')">Cancel</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="' + id + '-status" style="font-size:12px;margin-top:4px"></div>' +
+      '</div>' +
+    '</div>';
+  }
+  el.innerHTML = html;
+  el._xferTokens = visible;
+}
+
+function showXferForm(i) {
+  document.getElementById('xfer-' + i + '-form').style.display = 'block';
+  var allAddr = document.getElementById('xfer-all-recipient').value.trim();
+  if (allAddr) document.getElementById('xfer-' + i + '-recipient').value = allAddr;
+}
+
+function hideXferForm(i) {
+  document.getElementById('xfer-' + i + '-form').style.display = 'none';
+}
+
+function confirmXfer(i) {
+  var el = document.getElementById('xfer-token-list');
+  var t = (el && el._xferTokens) ? el._xferTokens[i] : null;
+  if (!t) return;
+  var amount = document.getElementById('xfer-' + i + '-amount').value.trim();
+  var recipient = document.getElementById('xfer-' + i + '-recipient').value.trim();
+  var statusEl = document.getElementById('xfer-' + i + '-status');
+  if (!amount || !recipient) { statusEl.innerHTML = '<span style="color:var(--red)">Fill in all fields</span>'; return; }
+  statusEl.innerHTML = '<span class="text-sec">Sending...</span>';
+  var body = { token: t.symbol, amount: amount, recipient: recipient, contractAddress: t.token_address || '' };
+  fetch('/api/send-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        statusEl.innerHTML = '<span style="color:var(--green)">Sent! <a href="https://bscscan.com/tx/' + d.txHash + '" target="_blank" style="color:var(--green);font-size:10px">TX\u2197</a></span>';
+        log('INFO', 'Transferred ' + amount + ' ' + t.symbol + ' to ' + recipient.slice(0,6) + '...');
+        setTimeout(function() { refreshAgentOverview(); renderTransferList(); }, 3000);
+      } else {
+        statusEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
+      }
+    })
+    .catch(function(e) { statusEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(e.message) + '</span>'; });
+}
+
+function sendAllTokens() {
+  var recipient = document.getElementById('xfer-all-recipient').value.trim();
+  var progressEl = document.getElementById('xfer-all-progress');
+  if (!recipient || !recipient.startsWith('0x') || recipient.length !== 42) {
+    progressEl.style.display = 'block';
+    progressEl.innerHTML = '<span style="color:var(--red)">Enter a valid 0x wallet address (42 chars)</span>';
+    return;
+  }
+  var tokensToSend = (_agentTokens || []).filter(function(t) { return parseFloat(t.balance_formatted || '0') > 1e-6; });
+  if (tokensToSend.length === 0) {
+    progressEl.style.display = 'block';
+    progressEl.innerHTML = '<span class="text-sec">No tokens with balance to send.</span>';
+    return;
+  }
+  var rows = '';
+  for (var k = 0; k < tokensToSend.length; k++) {
+    rows += '<div id="xfer-all-s-' + k + '">' + escapeHtml(tokensToSend[k].symbol) + ': <span class="text-sec">queued</span></div>';
+  }
+  progressEl.style.display = 'block';
+  progressEl.innerHTML = rows;
+  var i = 0;
+  function next() {
+    if (i >= tokensToSend.length) {
+      progressEl.innerHTML += '<div style="margin-top:4px;color:var(--green);font-weight:600">All transfers complete.</div>';
+      setTimeout(function() { refreshAgentOverview(); renderTransferList(); }, 2000);
+      return;
+    }
+    var t = tokensToSend[i];
+    var sEl = document.getElementById('xfer-all-s-' + i);
+    sEl.innerHTML = escapeHtml(t.symbol) + ': <span class="text-sec">sending\u2026</span>';
+    var body = { token: t.symbol, amount: t.balance_formatted, recipient: recipient, contractAddress: t.token_address || '' };
+    fetch('/api/send-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          sEl.innerHTML = escapeHtml(t.symbol) + ': <span style="color:var(--green)">\u2713 sent <a href="https://bscscan.com/tx/' + d.txHash + '" target="_blank" style="color:var(--green);font-size:10px">TX\u2197</a></span>';
+          log('INFO', 'Send All: transferred ' + t.symbol + ' to ' + recipient.slice(0,6) + '...');
+        } else {
+          sEl.innerHTML = escapeHtml(t.symbol) + ': <span style="color:var(--red)">' + escapeHtml(d.error || 'failed') + '</span>';
+        }
+        i++; next();
+      })
+      .catch(function() { sEl.innerHTML = escapeHtml(t.symbol) + ': <span style="color:var(--red)">error</span>'; i++; next(); });
+  }
+  next();
 }
 
 // =============================================================================
