@@ -1349,7 +1349,7 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   <div class="grid-2">
 
     <!-- Chat -->
-    <div class="card">
+    <div class="card" id="chat-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <h2 style="margin:0">Agent Chat</h2>
         <div style="display:flex;gap:8px;align-items:center">
@@ -2879,6 +2879,10 @@ function runAutonomous() {
   status.className = 'badge badge-blue';
   autoLog('[Step 1] Planning trades...');
   log('INFO', 'Autonomous mode: planning phase');
+
+  // Scroll to chat so user can watch trades happen live
+  var chatCard = document.getElementById('chat-card');
+  if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   var planMessage = 'You are in autonomous mode. Plan 3 small trades using ~20% of my BNB balance. ' +
     'For each trade, specify: the exact action (swap/supply/deposit), the exact amount, the token, and the protocol. ' +
