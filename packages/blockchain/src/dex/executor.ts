@@ -173,11 +173,14 @@ export async function prepareSwap(
   config: GuardrailConfig,
   bnbPriceUsd: number,
 ): Promise<{ quote: SwapQuote; guardrail: GuardrailResult } | { error: string }> {
+  console.log(`[prepareSwap] params.tokenIn=${params.tokenIn}, params.tokenOut=${params.tokenOut}, amountIn=${params.amountIn}`);
+
   // 1. Get quote / build path
   const quote = await getSwapQuote(provider, params, bnbPriceUsd);
   if (!quote) {
     return { error: 'No liquidity path found for this token pair' };
   }
+  console.log(`[prepareSwap] quote.path=[${quote.path.join(', ')}], amountOut=${quote.amountOut}`);
 
   // 2. Build the tx to simulate
   const senderAddress = params.recipient ?? '0x0000000000000000000000000000000000000001';
@@ -225,7 +228,13 @@ export async function executeSwap(
   const isFromBnb = params.tokenIn.toLowerCase() === NATIVE_BNB_ADDRESS.toLowerCase() ||
                     params.tokenIn.toLowerCase() === WBNB_ADDRESS.toLowerCase();
 
+  console.log(`[executeSwap] params.tokenIn=${params.tokenIn}, params.tokenOut=${params.tokenOut}`);
+  console.log(`[executeSwap] quote.path=[${quote.path.join(', ')}]`);
+  console.log(`[executeSwap] isFromBnb=${isFromBnb}`);
+
   if (!isFromBnb) {
+    console.log(`[executeSwap] Will approve token: ${params.tokenIn} for router ${PANCAKESWAP_V2_ROUTER}`);
+    console.log(`[executeSwap] Swap path[0]: ${quote.path[0]}, matches tokenIn: ${params.tokenIn.toLowerCase() === quote.path[0]?.toLowerCase()}`);
     // Sanity check: the token we approve MUST match the first token in the swap path.
     // If these diverge, we'd approve token A but the router pulls token B → revert.
     if (quote.path.length > 0 && params.tokenIn.toLowerCase() !== quote.path[0].toLowerCase()) {
@@ -267,6 +276,11 @@ export async function executeSwap(
                           quote.tokenIn.toLowerCase() === WBNB_ADDRESS.toLowerCase();
     const isToBnb = quote.tokenOut.toLowerCase() === NATIVE_BNB_ADDRESS.toLowerCase() ||
                     quote.tokenOut.toLowerCase() === WBNB_ADDRESS.toLowerCase();
+
+    console.log(`[executeSwap] quote.tokenIn=${quote.tokenIn}, quote.tokenOut=${quote.tokenOut}`);
+    console.log(`[executeSwap] isFromBnbSwap=${isFromBnbSwap}, isToBnb=${isToBnb}`);
+    console.log(`[executeSwap] amountIn=${amountIn}, amountOutMin=${amountOutMin}, path=[${quote.path.join(',')}]`);
+    console.log(`[executeSwap] signerAddress=${signerAddress}, deadline=${deadline}`);
 
     let swapTx;
     if (isFromBnbSwap) {
@@ -336,6 +350,7 @@ export async function executeSwap(
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error(`[executeSwap] FULL ERROR:`, err);
     return {
       success: false,
       amountIn: quote.amountIn,

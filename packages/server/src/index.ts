@@ -538,6 +538,8 @@ app.post('/api/swap/quote', async (req, res) => {
 });
 
 app.post('/api/swap/execute', async (req, res) => {
+  console.log('[/api/swap/execute] req.body:', JSON.stringify(req.body));
+
   if (!agentWallet) {
     res.status(503).json({ error: 'Agent wallet not configured. Server is still initializing or wallet generation failed.' });
     return;
@@ -559,6 +561,7 @@ app.post('/api/swap/execute', async (req, res) => {
   try {
     const tokenInAddr = resolveToken(tokenIn);
     const tokenOutAddr = resolveToken(tokenOut);
+    console.log(`[/api/swap/execute] resolved: tokenIn="${tokenIn}" → ${tokenInAddr}, tokenOut="${tokenOut}" → ${tokenOutAddr}`);
     if (!tokenInAddr) { res.status(400).json({ error: `Unknown token: ${tokenIn}` }); return; }
     if (!tokenOutAddr) { res.status(400).json({ error: `Unknown token: ${tokenOut}` }); return; }
     const amountInWei = BigInt(Math.floor(amountBnb * 1e18)).toString();
