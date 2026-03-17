@@ -538,8 +538,6 @@ app.post('/api/swap/quote', async (req, res) => {
 });
 
 app.post('/api/swap/execute', async (req, res) => {
-  console.log('[/api/swap/execute] req.body:', JSON.stringify(req.body));
-
   if (!agentWallet) {
     res.status(503).json({ error: 'Agent wallet not configured. Server is still initializing or wallet generation failed.' });
     return;
@@ -701,13 +699,8 @@ app.post('/api/reset-approval', async (req, res) => {
   try {
     const signer = agentWallet.connect(provider);
     // Reset to 0 first, then approve MaxUint256
-    console.log(`[reset-approval] Revoking approval for ${token} (${tokenAddr})...`);
     const revokeTx = await executeApproval(signer, tokenAddr, PANCAKESWAP_V2_ROUTER, 0n);
-    console.log(`[reset-approval] Revoke tx: ${revokeTx}`);
-
-    console.log(`[reset-approval] Granting max approval for ${token}...`);
     const approveTx = await executeApproval(signer, tokenAddr, PANCAKESWAP_V2_ROUTER);
-    console.log(`[reset-approval] Approve tx: ${approveTx}`);
 
     res.json({ success: true, revokeTxHash: revokeTx, approveTxHash: approveTx });
   } catch (e) {
@@ -1392,10 +1385,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
       <div class="input-row">
         <input type="number" id="trade-amount" placeholder="Amount" step="0.001" min="0" style="flex:1" />
         <button class="btn" onclick="tradeSwap()">Swap</button>
-      </div>
-      <div style="margin-bottom:8px">
-        <button class="btn btn-sec btn-sm" onclick="resetApproval()">Reset Approval</button>
-        <span id="approval-result" class="text-sm" style="margin-left:8px"></span>
       </div>
       <div id="trade-error" class="text-sm" style="color:var(--red);margin-bottom:8px;display:none"></div>
       <div class="tx-result" id="tx-result"></div>
@@ -2692,31 +2681,6 @@ function tradeSwap() {
   .catch(function(e) {
     resEl.innerHTML = '<div style="color:var(--red)">Error: ' + escapeHtml(e.message) + '</div>';
     log('ERROR', 'Swap error: ' + e.message);
-  });
-}
-
-function resetApproval() {
-  var token = document.getElementById('trade-from').value || 'BNB';
-  var resultEl = document.getElementById('approval-result');
-  if (token === 'BNB') { resultEl.innerHTML = '<span style="color:var(--orange)">BNB is native — no approval needed</span>'; return; }
-  resultEl.innerHTML = '<span class="text-sec"><span class="spinner"></span> Resetting...</span>';
-  log('TRADE', 'Resetting approval for ' + token);
-  fetch('/api/reset-approval', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: token })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.success) {
-      resultEl.innerHTML = '<span style="color:var(--green)">Approval reset for ' + escapeHtml(token) + '</span>';
-      log('TRADE', 'Approval reset: revoke=' + d.revokeTxHash.slice(0,10) + '... approve=' + d.approveTxHash.slice(0,10) + '...');
-    } else {
-      resultEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(d.error || 'Failed') + '</span>';
-    }
-  })
-  .catch(function(e) {
-    resultEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(e.message) + '</span>';
   });
 }
 
