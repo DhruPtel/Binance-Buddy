@@ -9,3 +9,11 @@ pnpm-lock.yaml
 .agent-keystore.json
 **/.agent-keystore.json
 .buddy-state.json
+
+# Planning / progress docs (not project docs)
+lessons.md
+progress.txt
+PHASE*.md
+OPENCLAW*.md
+DEVELOPMENT_PLAN.md
+IMPLEMENTATION_PLAN.md
