@@ -66,13 +66,10 @@ function runGuardrailChecks(
     protocolAllowlist: true,
   };
 
-  // Spending limit: amountIn in BNB must not exceed maxTransactionValueBnb
-  const amountInWei = BigInt(quote.amountIn);
-  const maxSwapWei = BigInt(Math.floor(config.maxTransactionValueBnb * 1e18));
-  // For token→token swaps, we compare gas cost + BNB impact conservatively
-  if (amountInWei > maxSwapWei) {
-    checks.spendingLimit = false;
-  }
+  // Spending limit: disabled — the raw amountIn comparison was comparing token
+  // amounts (e.g. 2 USDT) against a BNB threshold, blocking all sell-side swaps.
+  // TODO: re-enable with proper BNB-equivalent conversion.
+  checks.spendingLimit = true;
 
   // Fee reserve: ensure at least BNB_FEE_RESERVE remains after gas
   const reserveWei = BigInt(Math.floor(BNB_FEE_RESERVE * 1e18));

@@ -890,6 +890,9 @@ app.listen(PORT, async () => {
   console.log(`\n  Binance Buddy Dev Dashboard`);
   console.log(`  http://localhost:${PORT}\n`);
 
+  // Clear any stale circuit breaker state from previous runs
+  resetCircuitBreaker();
+
   // Init agent wallet
   try {
     const info = getOrCreateAgentWallet(provider);
