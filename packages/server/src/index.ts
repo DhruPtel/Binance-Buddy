@@ -1220,6 +1220,8 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
   .msg-system.tool .msg-bubble { color: var(--gold); }
   .msg-system.xp .msg-bubble { color: var(--purple); }
   .msg-system.error .msg-bubble { color: var(--red); }
+  .msg-auto { align-self: flex-start; align-items: flex-start; max-width: 82%; }
+  .msg-auto .msg-bubble { background: #F0F7FF; border: 1px solid #D0E4FF; font-size: 12px; color: #2B5EA7; }
   .msg-prefix { font-size: 11px; color: var(--text-tertiary); margin-bottom: 2px; }
   .typing-indicator { color: var(--text-tertiary); font-size: 13px; font-style: italic; padding: 4px 0; }
   .typing-dot { animation: blink 1.4s infinite; }
@@ -2865,6 +2867,9 @@ function chatAppend(type, text, extra) {
     div.className = 'msg msg-system xp';
   } else if (type === 'error') {
     div.className = 'msg msg-system error';
+  } else if (type === 'auto') {
+    div.className = 'msg msg-auto';
+    prefix = '<div class="msg-prefix">🤖 Auto</div>';
   } else {
     div.className = 'msg msg-system';
   }
@@ -3121,13 +3126,14 @@ function scanFarms(callback) {
 }
 
 // ---------------------------------------------------------------------------
-// Autonomous Mode — 3-step plan-then-execute
+// Autonomous Mode
 // ---------------------------------------------------------------------------
-var _autoRunning = false;
 
-// Send a message to agent chat and return the reply via callback
+// Send a command to the agent on behalf of autonomous mode.
+// Shows as an 'auto' bubble (robot emoji), NOT a user bubble.
+// callback(reply, err, data) — data includes circuitBreakerTripped.
 function autoChat(message, callback) {
-  chatAppend('user', message);
+  chatAppend('auto', message);
   document.getElementById('typing-indicator').style.display = 'block';
   console.log('[autonomous] sending: ' + message.slice(0, 100));
   fetch('/api/chat', {
@@ -3149,13 +3155,13 @@ function autoChat(message, callback) {
     if (d.buddyState) updateBuddyPanel(d.buddyState);
     loadCbStatus();
     console.log('[autonomous] reply: ' + reply.slice(0, 120));
-    callback(reply, null);
+    callback(reply, null, d);
   })
   .catch(function(e) {
     document.getElementById('typing-indicator').style.display = 'none';
     chatAppend('error', 'Error: ' + e.message);
     console.log('[autonomous] error: ' + e.message);
-    callback(null, e.message);
+    callback(null, e.message, {});
   });
 }
 
@@ -3164,101 +3170,110 @@ function hasTxHash(text) {
   return /0x[a-fA-F0-9]{40,}/.test(text || '');
 }
 
-// Parse numbered steps from planning response (lines starting with 1. 2. 3.)
-function parsePlanSteps(text) {
+// ---------------------------------------------------------------------------
+// Build concrete execution steps from farm scan data (client-side, no LLM)
+// Picks top 3 non-LP farms and generates small fixed-amount commands.
+// ---------------------------------------------------------------------------
+var AUTO_TRADE_BNB = '0.002'; // ~$1 per step, safe for testing
+
+function buildAutoSteps(farms) {
   var steps = [];
-  var lines = text.split(/\\r?\\n/);
-  var current = '';
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].trim();
-    var match = line.match(/^(\\d+)[.)\\-]\\s+(.+)/);
-    if (match) {
-      if (current) steps.push(current);
-      current = match[2];
-    } else if (current && line) {
-      current += ' ' + line;
+  for (var i = 0; i < farms.length && steps.length < 3; i++) {
+    var f = farms[i];
+    // Skip LP farms (two-token pools with impermanent loss)
+    if (f.poolName.indexOf('LP') !== -1 || f.tokens.length >= 2) continue;
+    var token = f.tokens[0];
+    var protocol = f.protocol;
+    var poolName = f.poolName;
+    var isBnb = token === 'BNB';
+    if (isBnb) {
+      // e.g. "Supply 0.002 BNB to Venus BNB Lending"
+      steps.push('Supply ' + AUTO_TRADE_BNB + ' BNB to ' + protocol + ' ' + poolName + '.');
+    } else {
+      // e.g. "Swap 0.002 BNB for USDT then supply to Venus USDT Lending"
+      steps.push('Swap ' + AUTO_TRADE_BNB + ' BNB for ' + token + ' then supply to ' + protocol + ' ' + poolName + '.');
     }
   }
-  if (current) steps.push(current);
-  return steps.slice(0, 3);
+  // Fallback if all farms were LP
+  if (steps.length === 0) {
+    steps.push('Swap ' + AUTO_TRADE_BNB + ' BNB for USDT.');
+    steps.push('Supply 0.001 BNB to Venus BNB Lending.');
+  }
+  return steps;
 }
+
+// ---------------------------------------------------------------------------
+// Autonomous state
+// ---------------------------------------------------------------------------
+var _autoRunning = false;
+var _autoShouldStop = false;
+var _autoCycleTimer = null;
 
 function runAutonomous() {
   if (_autoRunning) return;
   _autoRunning = true;
+  _autoShouldStop = false;
   var btn = document.getElementById('auto-toggle');
   var status = document.getElementById('auto-status');
-  btn.textContent = 'Running...';
-  btn.disabled = true;
+  btn.textContent = 'Stop';
+  btn.disabled = false;
   status.textContent = 'Scanning...';
   status.className = 'badge badge-blue';
-  autoLog('[Step 0] Scanning farm opportunities...');
-  log('INFO', 'Autonomous mode: farm scan phase');
+  autoLog('Cycle started — scanning farms...');
+  log('INFO', 'Autonomous cycle started');
 
-  // Step 0: scan farms into the card, then move to planning in chat
-  scanFarms(function() {
-    status.textContent = 'Planning...';
-    autoLog('[Step 1] Planning trades...');
-    log('INFO', 'Autonomous mode: planning phase');
+  scanFarms(function(farms) {
+    if (_autoShouldStop) { finishAutonomous('Stopped'); return; }
 
-    // Scroll to chat so user can watch trades happen live
-    var chatCard = document.getElementById('chat-card');
-    if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    var planMessage = 'You are in autonomous mode. Plan 3 small trades using ~20% of my BNB balance. ' +
-      'For each trade, specify: the exact action (swap/supply/deposit), the exact amount, the token, and the protocol. ' +
-      'Format each step as a numbered list. Do NOT execute yet — just plan.';
-
-    autoChat(planMessage, function(reply, err) {
-    if (err || !reply) {
-      autoLog('[Step 1] Planning failed: ' + (err || 'no response'));
-      finishAutonomous('Error');
-      return;
-    }
-
-    // Parse the plan
-    var steps = parsePlanSteps(reply);
-    console.log('[autonomous] parsed ' + steps.length + ' steps from plan');
-
-    if (steps.length === 0) {
-      // If parsing failed, try the whole reply as context
-      autoLog('[Step 1] Planned (could not parse steps, will ask agent to execute sequentially)');
-      steps = ['Execute step 1 from your plan above.', 'Execute step 2 from your plan above.', 'Execute step 3 from your plan above.'];
-    } else {
-      var preview = steps.map(function(s, i) { return (i+1) + '. ' + s.slice(0, 60); }).join(', ');
-      autoLog('[Step 1] Planned: ' + preview);
-    }
-
+    var steps = buildAutoSteps(farms);
+    var preview = steps.map(function(s, i) { return (i + 1) + '. ' + s; }).join(' | ');
+    autoLog('Plan: ' + preview);
     status.textContent = 'Executing...';
     status.className = 'badge badge-green';
 
-    // Execute steps sequentially
+    // Scroll to chat so user can watch execution live
+    var chatCard = document.getElementById('chat-card');
+    if (chatCard) chatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
     executeStep(steps, 0, function() {
       finishAutonomous('Complete');
     });
-    });  // end autoChat callback
-  });  // end scanFarms callback
+  });
 }
 
 function executeStep(steps, index, done) {
+  if (_autoShouldStop) { finishAutonomous('Stopped'); return; }
   if (index >= steps.length) { done(); return; }
+
   var stepNum = index + 1;
   var stepText = steps[index];
-  autoLog('[Step ' + (stepNum + 1) + '] Executing trade ' + stepNum + '...');
-  log('INFO', 'Autonomous: executing step ' + stepNum);
+  autoLog('[' + stepNum + '/' + steps.length + '] ' + stepText.slice(0, 70));
+  log('INFO', 'Autonomous step ' + stepNum + ': ' + stepText.slice(0, 60));
 
-  var message = 'Execute step ' + stepNum + ': ' + stepText;
-  autoChat(message, function(reply, err) {
-    if (err) {
-      autoLog('[Step ' + (stepNum + 1) + '] Error: ' + err);
-    } else if (hasTxHash(reply)) {
-      var txMatch = reply.match(/0x[a-fA-F0-9]{40,}/);
-      autoLog('[Step ' + (stepNum + 1) + '] Done: Tx ' + (txMatch ? txMatch[0].slice(0, 14) + '...' : 'confirmed'));
-    } else {
-      autoLog('[Step ' + (stepNum + 1) + '] Done: ' + (reply || 'no response').slice(0, 80));
+  autoChat(stepText, function(reply, err, data) {
+    if (_autoShouldStop) { finishAutonomous('Stopped'); return; }
+
+    if (data && data.circuitBreakerTripped) {
+      autoLog('[' + stepNum + '] Circuit breaker tripped — stopping cycle.');
+      log('WARN', 'Autonomous: circuit breaker tripped at step ' + stepNum);
+      finishAutonomous('Circuit breaker');
+      return;
     }
 
-    // Wait 5 seconds before next step
+    if (err) {
+      // Log and skip — don't abort
+      autoLog('[' + stepNum + '] Failed: ' + String(err).slice(0, 80) + ' — skipping.');
+      log('WARN', 'Autonomous step ' + stepNum + ' error: ' + String(err).slice(0, 60));
+    } else {
+      var txMatch = (reply || '').match(/0x[a-fA-F0-9]{64}/);
+      if (txMatch) {
+        autoLog('[' + stepNum + '] Done. Tx: ' + txMatch[0].slice(0, 14) + '...');
+      } else {
+        autoLog('[' + stepNum + '] Done: ' + (reply || '(no response)').slice(0, 80));
+      }
+    }
+
+    // Pause between steps, then continue
     setTimeout(function() {
       executeStep(steps, index + 1, done);
     }, 5000);
@@ -3267,22 +3282,43 @@ function executeStep(steps, index, done) {
 
 function finishAutonomous(statusText) {
   _autoRunning = false;
+  _autoShouldStop = false;
   var btn = document.getElementById('auto-toggle');
   var status = document.getElementById('auto-status');
   btn.textContent = 'Activate Autonomous';
   btn.disabled = false;
+  var isComplete = statusText === 'Complete';
+  var isStopped = statusText === 'Stopped';
   status.textContent = statusText;
-  status.className = statusText === 'Complete' ? 'badge badge-green' : 'badge badge-red';
-  autoLog('Autonomous mode ' + statusText.toLowerCase());
-  log('INFO', 'Autonomous mode ' + statusText.toLowerCase());
+  status.className = isComplete ? 'badge badge-green' : isStopped ? 'badge badge-red' : 'badge badge-red';
+  autoLog('Cycle ' + statusText.toLowerCase() + '.');
+  log('INFO', 'Autonomous cycle ' + statusText.toLowerCase());
+
+  // Schedule next cycle in 30 minutes if completed naturally
+  if (isComplete) {
+    if (_autoCycleTimer) clearTimeout(_autoCycleTimer);
+    _autoCycleTimer = setTimeout(function() {
+      autoLog('Starting next scheduled cycle...');
+      runAutonomous();
+    }, 30 * 60 * 1000);
+    autoLog('Next cycle in 30 minutes.');
+    status.textContent = 'Scheduled';
+    status.className = 'badge badge-blue';
+  }
 }
 
 function toggleAutonomous() {
   if (_autoRunning) {
-    // Can't stop mid-run — just let it finish
-    autoLog('Cannot stop while executing — will finish current run');
+    _autoShouldStop = true;
+    if (_autoCycleTimer) { clearTimeout(_autoCycleTimer); _autoCycleTimer = null; }
+    var btn = document.getElementById('auto-toggle');
+    btn.textContent = 'Stopping...';
+    btn.disabled = true;
+    autoLog('Stop requested — will halt after current step.');
     return;
   }
+  // Cancel any pending scheduled cycle before starting a manual one
+  if (_autoCycleTimer) { clearTimeout(_autoCycleTimer); _autoCycleTimer = null; }
   runAutonomous();
 }
 
