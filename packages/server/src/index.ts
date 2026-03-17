@@ -1749,10 +1749,16 @@ function refreshAgentOverview() {
           .then(function(r2) { return r2.json(); })
           .then(function(result) {
             console.log('[overview] wallet-tokens:', result.tokens ? result.tokens.length : result.error);
-            var tokens = result.tokens || [];
+            // Filter dust: skip zero balance or USD value known to be < $0.01
+            var tokens = (result.tokens || []).filter(function(t) {
+              var b = parseFloat(t.balance_formatted || '0');
+              if (b <= 1e-6) return false;
+              if (t.usd_value != null && t.usd_value < 0.01) return false;
+              return true;
+            });
             _agentTokens = tokens;
 
-            // Render token list with full names
+            // Render token list with full names and contract addresses
             if (tokens.length === 0) {
               tokensEl.innerHTML = '<span class="text-sec">No tokens detected</span>';
             } else {
@@ -1764,11 +1770,18 @@ function refreshAgentOverview() {
                 var rowClass = j >= 3 ? ' class="ao-token-extra"' : '';
                 var rowDisplay = j >= 3 ? 'none' : 'flex';
                 var nameSpan = (t.name && t.name !== t.symbol)
-                  ? '<span class="text-sec" style="font-size:11px;margin-left:5px">' + escapeHtml(t.name) + '</span>'
+                  ? '<div style="font-size:11px;color:var(--text-secondary)">' + escapeHtml(t.name) + '</div>'
                   : '';
-                html += '<div' + rowClass + ' style="display:' + rowDisplay + ';justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #EAECEF;gap:8px">' +
-                  '<span style="min-width:0;overflow:hidden"><span style="font-weight:600">' + escapeHtml(t.symbol) + '</span>' + nameSpan + '</span>' +
-                  '<span style="white-space:nowrap;flex-shrink:0">' + formatNum(bal) + (usdVal ? ' <span class="text-sec">(' + formatUsd(usdVal) + ')</span>' : '') + '</span></div>';
+                var addr = t.token_address || '';
+                var addrShort = addr ? addr.slice(0, 6) + '\u2026' + addr.slice(-4) : '';
+                var addrLine = addr
+                  ? '<div><a href="https://bscscan.com/token/' + addr + '" target="_blank" ' +
+                    'class="mono" style="font-size:10px;color:var(--text-tertiary);text-decoration:none">' +
+                    addrShort + '</a></div>'
+                  : '';
+                html += '<div' + rowClass + ' style="display:' + rowDisplay + ';justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:1px solid #EAECEF;gap:8px">' +
+                  '<div style="min-width:0;flex:1"><div><span style="font-weight:600">' + escapeHtml(t.symbol) + '</span></div>' + nameSpan + addrLine + '</div>' +
+                  '<div style="white-space:nowrap;flex-shrink:0;text-align:right">' + formatNum(bal) + (usdVal ? '<div class="text-sec" style="font-size:11px">' + formatUsd(usdVal) + '</div>' : '') + '</div></div>';
               }
               if (tokens.length > 3) {
                 html += '<div id="ao-tokens-toggle" onclick="toggleTokens()" style="margin-top:6px;font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none">Show all (' + tokens.length + ' tokens) \u25be</div>';
