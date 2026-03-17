@@ -1448,8 +1448,16 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- (empty second column) -->
-    <div></div>
+    <!-- Autonomous Activity Log -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <h2 style="margin:0">Autonomous Activity</h2>
+        <button class="btn btn-sec btn-sm" onclick="clearAutoLog()">Clear</button>
+      </div>
+      <div id="auto-log" class="log-box" style="height:220px">
+        <span class="text-sec text-sm">Activate autonomous mode to see activity.</span>
+      </div>
+    </div>
   </div>
 
   <!-- Activity Log -->
@@ -2636,11 +2644,41 @@ function executeFromResearch(action, token, protocol, category, underlyingAddr) 
 // =============================================================================
 // Autonomous Mode + Farm Scanner
 // =============================================================================
-function scanFarms() {
+// ---------------------------------------------------------------------------
+// Autonomous Activity Log
+// ---------------------------------------------------------------------------
+var _autoLogEntries = [];
+
+function autoLog(msg) {
+  var now = new Date();
+  var ts = '[' + now.getHours().toString().padStart(2,'0') + ':' +
+           now.getMinutes().toString().padStart(2,'0') + ']';
+  _autoLogEntries.push(ts + ' ' + msg);
+  if (_autoLogEntries.length > 100) _autoLogEntries.shift();
+  var el = document.getElementById('auto-log');
+  if (el) {
+    el.innerHTML = _autoLogEntries.map(function(line) {
+      return '<div class="log-entry" style="padding:2px 0;font-size:11px">' + escapeHtml(line) + '</div>';
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function clearAutoLog() {
+  _autoLogEntries = [];
+  var el = document.getElementById('auto-log');
+  if (el) el.innerHTML = '<span class="text-sec text-sm">Log cleared.</span>';
+}
+
+// ---------------------------------------------------------------------------
+// Farm Scanner — accepts optional callback with parsed farm results
+// ---------------------------------------------------------------------------
+function scanFarms(onComplete) {
   var btn = document.getElementById('farms-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   log('INFO', 'Scanning farms...');
+  console.log('[autonomous] scanFarms() called');
   fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: 'find farms', walletAddress: _wallet || undefined, mode: _mode })
   })
@@ -2649,6 +2687,7 @@ function scanFarms() {
     btn.disabled = false;
     btn.textContent = 'Scan Farms';
     var farms = (_latestReport && _latestReport.opportunities) || [];
+    console.log('[autonomous] scanFarms result: ' + farms.length + ' farms from _latestReport, reply: ' + (d.reply || '').slice(0, 80));
     var html = '';
     if (farms.length > 0) {
       for (var i = 0; i < Math.min(farms.length, 5); i++) {
@@ -2668,11 +2707,34 @@ function scanFarms() {
     document.getElementById('farms-results').innerHTML = html;
     log('INFO', 'Farm scan complete. ' + farms.length + ' opportunities found.');
     if (d.buddyState) updateBuddyPanel(d.buddyState);
+    if (typeof onComplete === 'function') onComplete(farms);
   })
   .catch(function(e) {
     btn.disabled = false;
     btn.textContent = 'Scan Farms';
     log('ERROR', 'Farm scan: ' + e.message);
+    if (typeof onComplete === 'function') onComplete([]);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Autonomous Mode
+// ---------------------------------------------------------------------------
+function autonomousCycle() {
+  console.log('[autonomous] cycle firing');
+  autoLog('Scanning farms...');
+  scanFarms(function(farms) {
+    if (farms.length > 0) {
+      var f = farms[0];
+      var label = (f.poolName || 'Unknown') + ' ' + f.apy.toFixed(1) + '% APY';
+      autoLog('Scanned farms — top: ' + label);
+      autoLog('Executing: Enter farm ' + (f.poolName || '') + ' on ' + (f.protocol || ''));
+      console.log('[autonomous] executing top farm: ' + label);
+      executeFromResearch('Enter farm', f.poolName || f.tokens.join('/'), f.protocol, 'farming');
+    } else {
+      autoLog('Scanned farms — no opportunities found');
+      console.log('[autonomous] no farms found');
+    }
   });
 }
 
@@ -2685,22 +2747,17 @@ function toggleAutonomous() {
     btn.textContent = 'Activate Autonomous';
     status.textContent = 'Inactive';
     status.className = 'badge badge-red';
+    autoLog('Autonomous mode stopped');
     log('INFO', 'Autonomous mode stopped');
   } else {
     btn.textContent = 'Stop Autonomous';
     status.textContent = 'Active — scanning every 5 min';
     status.className = 'badge badge-green';
+    autoLog('Autonomous mode activated — scanning every 5 min');
     log('INFO', 'Autonomous mode activated');
-    scanFarms();
-    _autoInterval = setInterval(function() {
-      scanFarms();
-      // Execute first farm if available
-      var farms = (_latestReport && _latestReport.opportunities) || [];
-      if (farms.length > 0) {
-        var f = farms[0];
-        executeFromResearch('Enter farm', f.poolName || f.tokens.join('/'), f.protocol, 'farming');
-      }
-    }, 300000);
+    // Fire immediately, then every 5 minutes
+    autonomousCycle();
+    _autoInterval = setInterval(autonomousCycle, 300000);
   }
 }
 
