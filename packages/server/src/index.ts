@@ -1817,6 +1817,7 @@ function setMode(m) {
 var _agentTokens = [];
 
 function refreshAgentOverview() {
+  console.log('[overview] refreshAgentOverview called');
   var addrEl = document.getElementById('ao-addr');
   var bnbEl = document.getElementById('ao-bnb');
   var bnbUsdEl = document.getElementById('ao-bnb-usd');
@@ -1840,7 +1841,11 @@ function refreshAgentOverview() {
         fetch('/api/wallet-tokens/' + d.address)
           .then(function(r2) { return r2.json(); })
           .then(function(result) {
-            console.log('[overview] wallet-tokens:', result.tokens ? result.tokens.length : result.error);
+            console.log('[overview] wallet-tokens response:', JSON.stringify({ count: result.tokens ? result.tokens.length : 0, error: result.error || null }));
+            if (result.error && (!result.tokens || result.tokens.length === 0)) {
+              tokensEl.innerHTML = '<span class="text-sec" style="color:#f87171">Token scan failed: ' + escapeHtml(result.error) + '</span>';
+              return;
+            }
             // Filter dust: skip zero balance or USD value known to be < $0.01
             var tokens = (result.tokens || []).filter(function(t) {
               var b = parseFloat(t.balance_formatted || '0');

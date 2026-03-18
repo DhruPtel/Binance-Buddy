@@ -8,6 +8,7 @@ import {
   PANCAKESWAP_V2_ROUTER,
   WBNB_ADDRESS,
   NATIVE_BNB_ADDRESS,
+  SAFE_TOKENS,
 } from '@binancebuddy/core';
 import type { SwapParams, SwapQuote } from '@binancebuddy/core';
 
@@ -26,9 +27,33 @@ const ROUTER_ABI = [
 // Path building
 // ---------------------------------------------------------------------------
 
+// USDT is used as a stablecoin bridge for tokens (like FDUSD) whose direct
+// WBNB pair has thin liquidity. Adding it as an intermediate hop can yield
+// significantly better rates (confirmed on-chain: FDUSD→USDT→WBNB gives
+// ~2x better output than the direct FDUSD→WBNB pool).
+const USDT_ADDRESS = SAFE_TOKENS['USDT'];
+
 /**
- * Determine the best swap path. Tries direct pair first; if that fails,
- * routes through WBNB. Returns null if neither path works.
+ * Try a single path via getAmountsOut. Returns null on revert or zero output.
+ */
+async function tryPath(
+  router: ReturnType<typeof getRouterContract>,
+  amountIn: bigint,
+  path: string[],
+): Promise<{ path: string[]; amountOut: bigint } | null> {
+  try {
+    const amounts: bigint[] = await router.getAmountsOut(amountIn, path);
+    const out = amounts[amounts.length - 1];
+    return out > 0n ? { path, amountOut: out } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Determine the best swap path across all candidate routes.
+ * Tries direct, WBNB-bridged, and USDT-bridged paths concurrently and
+ * returns whichever yields the highest amountOut.
  */
 export async function findBestPath(
   provider: Provider,
@@ -43,32 +68,34 @@ export async function findBestPath(
   const normIn = tokenIn.toLowerCase() === NATIVE_BNB_ADDRESS.toLowerCase() ? WBNB_ADDRESS : tokenIn;
   const normOut = tokenOut.toLowerCase() === NATIVE_BNB_ADDRESS.toLowerCase() ? WBNB_ADDRESS : tokenOut;
 
-  // Try direct path first
-  const directPath = [normIn, normOut];
-  try {
-    const amounts: bigint[] = await router.getAmountsOut(amountIn, directPath);
-    if (amounts[1] > 0n) {
-      return { path: directPath, amountOut: amounts[1] };
-    }
-  } catch {
-    // No direct pair — try via WBNB
+  const isWbnbIn = normIn.toLowerCase() === WBNB_ADDRESS.toLowerCase();
+  const isWbnbOut = normOut.toLowerCase() === WBNB_ADDRESS.toLowerCase();
+  const isUsdtIn = normIn.toLowerCase() === USDT_ADDRESS.toLowerCase();
+  const isUsdtOut = normOut.toLowerCase() === USDT_ADDRESS.toLowerCase();
+
+  // Build all candidate paths
+  const candidates: string[][] = [
+    [normIn, normOut], // direct
+  ];
+  if (!isWbnbIn && !isWbnbOut) {
+    candidates.push([normIn, WBNB_ADDRESS, normOut]); // via WBNB
+  }
+  if (!isUsdtIn && !isUsdtOut) {
+    candidates.push([normIn, USDT_ADDRESS, normOut]); // via USDT (better for stablecoins)
   }
 
-  // Route through WBNB (skip if tokenIn or tokenOut is already WBNB)
-  if (normIn.toLowerCase() !== WBNB_ADDRESS.toLowerCase() &&
-      normOut.toLowerCase() !== WBNB_ADDRESS.toLowerCase()) {
-    const wbnbPath = [normIn, WBNB_ADDRESS, normOut];
-    try {
-      const amounts: bigint[] = await router.getAmountsOut(amountIn, wbnbPath);
-      if (amounts[2] > 0n) {
-        return { path: wbnbPath, amountOut: amounts[2] };
-      }
-    } catch {
-      // Path through WBNB also failed
-    }
+  // Try all paths concurrently, pick the best output
+  const results = await Promise.all(candidates.map((p) => tryPath(router as ReturnType<typeof getRouterContract>, amountIn, p)));
+  let best: { path: string[]; amountOut: bigint } | null = null;
+  for (const r of results) {
+    if (r && (!best || r.amountOut > best.amountOut)) best = r;
   }
 
-  return null;
+  if (best) {
+    console.log(`[swap] route: ${best.path.join('→')} amountOut: ${best.amountOut.toString()}`);
+  }
+
+  return best;
 }
 
 // ---------------------------------------------------------------------------
