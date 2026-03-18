@@ -17,6 +17,7 @@ import { addLiquidityTool } from './add-liquidity.js';
 import { getResearchTool } from './research.js';
 import { resolveContractTool } from './resolve-contract.js';
 import { withdrawLendingTool } from './withdraw-lending.js';
+import { withdrawLiquidityTool } from './withdraw-liquidity.js';
 
 // Ordered by frequency of expected use
 const ALL_TOOLS: AgentTool[] = [
@@ -30,6 +31,7 @@ const ALL_TOOLS: AgentTool[] = [
   supplyLendingTool,
   withdrawLendingTool,
   addLiquidityTool,
+  withdrawLiquidityTool,
   findFarmsTool,
   setAlertTool,
   snipeLaunchTool,
