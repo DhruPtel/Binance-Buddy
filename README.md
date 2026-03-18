@@ -4,9 +4,64 @@
 
 Binance Buddy is a hackathon project built for BNB Chain. It executes **real on-chain transactions on BSC mainnet** — swaps, LP positions, vault deposits, and lending — through a Claude-powered chat agent backed by a 30-minute research pipeline. A Tamagotchi-style 3D bear companion evolves as you trade.
 
-> ⚠️ **WARNING: This uses real money.**
-> The agent wallet holds real BNB and tokens. All trades are irreversible on-chain.
-> Only fund with amounts you are willing to lose entirely.
+> ⚠️ This project executes real transactions on BSC mainnet with real money. Only fund the agent wallet with amounts you're comfortable using for testing.
+
+---
+
+## Setup
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm (`npm install -g pnpm`)
+
+### Install
+
+```bash
+git clone https://github.com/your-org/binancebuddy
+cd binancebuddy
+pnpm install
+```
+
+### Environment Variables
+
+Create a `.env` file at the project root:
+
+```env
+# Required
+ANTHROPIC_API_KEY=sk-ant-...        # Claude API key
+
+# Required for trading
+AGENT_WALLET_PRIVATE_KEY=0x...      # Dedicated agent wallet (generate fresh — never use your main wallet)
+BSC_RPC_URL=https://bsc-dataseed.binance.org/
+
+# Strongly recommended
+MORALIS_API_KEY=...                  # Full BEP-20 token discovery and tx history
+BRAVE_SEARCH_API_KEY=...             # Contract address resolution fallback
+
+# Optional
+COVALENT_API_KEY=...                 # GoldRush fallback for DEX pool data
+DUNE_API_KEY=...                     # Deep on-chain analytics
+COINGECKO_API_KEY=...                # Higher rate limits on price data
+TELEGRAM_BOT_TOKEN=...               # Telegram bot interface
+```
+
+> **Note:** If `AGENT_WALLET_PRIVATE_KEY` is not set, a wallet is auto-generated on first run and the address is printed to the console. The key is stored encrypted (AES-256-GCM) in `.agent-keystore.json`.
+
+### Run
+
+```bash
+pnpm exec tsx packages/server/src/index.ts
+```
+
+Open **http://localhost:3000**
+
+### Fund and Start
+
+1. Copy the agent wallet address shown in the dashboard header
+2. Send BNB to it — 0.05–0.1 BNB is enough to start
+3. Chat with Buddy: *"What are the best yield opportunities right now?"*
+4. Or click **Activate Autonomous** to let it trade on a 30-minute cycle
 
 ---
 
@@ -129,6 +184,8 @@ Real-time token holdings via Moralis API with full token names, contract address
 
 ## Buddy Evolution
 
+![Buddy Evolution](evolution.png)
+
 | Stage | XP | Model | Notes |
 |---|---|---|---|
 | 🌱 Seedling | 0 | Bear cub | Starting stage |
@@ -147,63 +204,6 @@ Real-time token holdings via Moralis API with full token names, contract address
 | Research action | +10 |
 | Wallet scan | +3 |
 | Chat interaction | +1 |
-
----
-
-## Setup
-
-### Prerequisites
-
-- Node.js 20+
-- pnpm (`npm install -g pnpm`)
-
-### Install
-
-```bash
-git clone https://github.com/your-org/binancebuddy
-cd binancebuddy
-pnpm install
-```
-
-### Environment Variables
-
-Create a `.env` file at the project root:
-
-```env
-# Required
-ANTHROPIC_API_KEY=sk-ant-...        # Claude API key
-
-# Required for trading
-AGENT_WALLET_PRIVATE_KEY=0x...      # Dedicated agent wallet (generate fresh — never use your main wallet)
-BSC_RPC_URL=https://bsc-dataseed.binance.org/
-
-# Strongly recommended
-MORALIS_API_KEY=...                  # Full BEP-20 token discovery and tx history
-BRAVE_SEARCH_API_KEY=...             # Contract address resolution fallback
-
-# Optional
-COVALENT_API_KEY=...                 # GoldRush fallback for DEX pool data
-DUNE_API_KEY=...                     # Deep on-chain analytics
-COINGECKO_API_KEY=...                # Higher rate limits on price data
-TELEGRAM_BOT_TOKEN=...               # Telegram bot interface
-```
-
-> **Note:** If `AGENT_WALLET_PRIVATE_KEY` is not set, a wallet is auto-generated on first run and the address is printed to the console. The key is stored encrypted (AES-256-GCM) in `.agent-keystore.json`.
-
-### Run
-
-```bash
-pnpm exec tsx packages/server/src/index.ts
-```
-
-Open **http://localhost:3000**
-
-### Fund and Start
-
-1. Copy the agent wallet address shown in the dashboard header
-2. Send BNB to it — 0.05–0.1 BNB is enough to start
-3. Chat with Buddy: *"What are the best yield opportunities right now?"*
-4. Or click **Activate Autonomous** to let it trade on a 30-minute cycle
 
 ---
 
