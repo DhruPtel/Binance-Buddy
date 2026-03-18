@@ -184,7 +184,7 @@ Real-time token holdings via Moralis API with full token names, contract address
 
 ## Buddy Evolution
 
-![Buddy Evolution](evolution.png)
+![Buddy Evolution](Evolutions.png)
 
 | Stage | XP | Model | Notes |
 |---|---|---|---|
