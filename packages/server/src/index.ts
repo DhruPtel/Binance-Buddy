@@ -1420,11 +1420,6 @@ const DASHBOARD_HTML = /* html */ `<!DOCTYPE html>
         <div id="ao-tokens" style="font-size:12px"><span class="text-sec">Loading...</span></div>
       </div>
 
-      <!-- Buttons -->
-      <div style="display:flex;gap:8px;margin-bottom:14px">
-        <button class="btn btn-sec btn-sm" onclick="createNewWallet()">Create New Wallet</button>
-      </div>
-
       <!-- Send Tokens -->
       <div style="border-top:1px solid var(--bg-tertiary);padding-top:12px">
         <div class="text-sec text-sm" style="margin-bottom:8px;font-weight:600">Send Tokens</div>
@@ -1927,21 +1922,6 @@ function toggleTokens() {
   }
   toggle.setAttribute('data-expanded', expanded ? '0' : '1');
   toggle.textContent = expanded ? 'Show all (' + (extras.length + 3) + ' tokens) \u25be' : 'Show less \u25b4';
-}
-
-function createNewWallet() {
-  if (!confirm('This will generate a new agent wallet. The old wallet will still exist on-chain but the server will use the new one. Continue?')) return;
-  fetch('/api/agent-wallet/create', { method: 'POST' })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.address) {
-        log('INFO', 'New wallet created: ' + d.address.slice(0,6) + '...');
-        refreshAgentOverview();
-      } else {
-        log('ERROR', 'Failed to create wallet: ' + (d.error || 'unknown'));
-      }
-    })
-    .catch(function(e) { log('ERROR', 'Create wallet failed: ' + e.message); });
 }
 
 function sendTokens() {
